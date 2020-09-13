@@ -1,1 +1,6 @@
 theme: jekyll-theme-minimal
+title: SuVeRa Open Source Projects
+description: SuVeRa Open Source Github Projects
+show_downloads: false
+google_analytics:
+logo:
