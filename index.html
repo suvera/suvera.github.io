@@ -39,6 +39,7 @@
             background-color: #f5f5f5;
         }
     </style>
+    <link rel='stylesheet' type='text/css' href='https://cdn-dev.securiti.xyz/consent/cookie-consent.css' />
 </head>
 <body class="d-flex flex-column h-100">
 
@@ -131,5 +132,19 @@
 <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"
         integrity="sha384-B4gt1jrGC7Jh4AgTPSdUtOBvfO8shuf57BaghqFfPlYxofvL8/KUEfYiJOMMV+rV"
         crossorigin="anonymous"></script>
+<!-- After adding this script, call setConsentBannerParams({uuid: <unique id> }) to set unique ID for a customer. -->
+<script>
+(function () {
+	var s = document.createElement('script');
+	s.src = 'https://cdn-dev.securiti.xyz/consent/cookie-consent-sdk.js';
+	s.setAttribute('data-tenant-uuid', '7db1b047-de35-40ff-87d4-44f8737d4525');
+	s.setAttribute('data-domain-uuid', '4601ac8d-5638-4477-892f-7cf780160efe');
+	s.setAttribute('data-backend-url', 'https://dev.securiti.xyz');
+	s.defer = true;
+	var parent_node = document.head || document.body;
+	parent_node.appendChild(s);
+	s.addEventListener('load', function() { window.initCmp(); });
+})()
+</script>
 </body>
 </html>
