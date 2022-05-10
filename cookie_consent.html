@@ -45,18 +45,10 @@
 
 <main role="main" class="flex-shrink-0">
     <div class="container">
-        <h1 class="mt-3">SuVeRa Open Source Projects</h1>
+        <h1 class="mt-3">Test Page</h1>
         <hr/>
 
-        <ul>
-            <li>Linkedin: <a href="https://www.linkedin.com/in/nramanarayana/">
-                https://www.linkedin.com/in/nramanarayana/</a>
-            </li>
-        </ul>
-        <p class="lead">Test</p>
-
         <div>
-            <h3 class="mt-3">Test Page </h3>
             <p class="lead">
               Supermassive black hole (BH) binaries are thought to produce self-lensing flares (SLF) when the two BHs are 
               aligned with the line-of-sight. If the binary orbit is observed nearly edge-on, we find a distinct feature in 
@@ -92,7 +84,33 @@
         crossorigin="anonymous"></script>
 <!-- After adding this script, call setConsentBannerParams({uuid: <unique id> }) to set unique ID for a customer. -->
 <script>
+function setCookie(name,value,days) {
+    var expires = "";
+    if (days) {
+        var date = new Date();
+        date.setTime(date.getTime() + (days*24*60*60*1000));
+        expires = "; expires=" + date.toUTCString();
+    }
+    document.cookie = name + "=" + (value || "")  + expires + "; path=/";
+}
+function getCookie(name) {
+    var nameEQ = name + "=";
+    var ca = document.cookie.split(';');
+    for(var i=0;i < ca.length;i++) {
+        var c = ca[i];
+        while (c.charAt(0)==' ') c = c.substring(1,c.length);
+        if (c.indexOf(nameEQ) == 0) return c.substring(nameEQ.length,c.length);
+    }
+    return null;
+}
+function eraseCookie(name) {   
+    document.cookie = name +'=; Path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT;';
+}
+
 (function () {
+	
+	setCookie('black_hole_size', '50l', 7);
+	setCookie('remember_me', 'true', 7);
 	var s = document.createElement('script');
 	s.src = 'https://cdn-dev.securiti.xyz/consent/cookie-consent-sdk.js';
 	s.setAttribute('data-tenant-uuid', '7db1b047-de35-40ff-87d4-44f8737d4525');
