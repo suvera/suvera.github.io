@@ -133,11 +133,13 @@ function loadCookieConsent(tenantId, domainId) {
     s.setAttribute('data-tenant-uuid', tenantId);
     s.setAttribute('data-domain-uuid', domainId);
     s.setAttribute('data-backend-url', 'https://dev.securiti.xyz');
+    s.onload = function() {
+        window.initCmp();
+    }
     s.defer = true;
     var parent_node = document.head || document.body;
     parent_node.appendChild(s);
 
-    window.initCmp();
     window._cmpLoaded = true;
     //s.addEventListener('load', function() { window.initCmp(); });
 }
