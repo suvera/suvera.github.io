@@ -116,8 +116,11 @@ function eraseCookie(name) {
 	setCookie('remember_me', 'true', 7);
 
     if (getCookie('__privaci_cookie_consent_uuid') == null) {
+        setCookie('__privaci_cookie_no_action', 'no-action-consent', 7);
         setCookie('__privaci_cookie_consent_uuid', 'becae994-551e-4efc-9d39-4a873eb66e39:1', 7);
         setCookie('__privaci_cookie_consent_generated', 'becae994-551e-4efc-9d39-4a873eb66e39:1', 7);
+        // {"consents":{"7":1,"9":1},"location":"TS#IN","lang":"en"}
+        setCookie('__privaci_cookie_consents', '{}', 7)
     }
 })()
 
@@ -126,6 +129,7 @@ function eraseCookie(name) {
 
 function loadCookieConsent(tenantId, domainId) {
     if (window._cmpLoaded) {
+        preferenceCenterGeneration.showCookiePreference('opt-out', null, !0)
         return;
     }
 
@@ -136,7 +140,11 @@ function loadCookieConsent(tenantId, domainId) {
     s.setAttribute('data-backend-url', 'https://dev.securiti.xyz');
     s.onload = function() {
         window.initCmp();
-        preferenceCenterGeneration.showCookiePreference('opt-out', null, !0)
+
+        window.setTimeout(3000, function() {
+            preferenceCenterGeneration.showCookiePreference('opt-out', null, !0)
+        })
+        
     }
     s.defer = true;
     var parent_node = document.head || document.body;
