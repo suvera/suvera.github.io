@@ -101,13 +101,13 @@ The most likely side effects that you may experience from the vaccine
                     window.addEventListener('load', function() {
                     var codeGenMetadata = {
                         // todo: put form id here
-                        formPropertyId: 3,
-                        formSelector: '[aaa*="aa"]',
-                        subjectIdentifiers: [{"name":"bbbb","selector":"bbb","isPrimary":true}],
-                        consentIdentifiers: [{"type":"checkbox","name":"xxx","selector":"xxx","propertyId":69,"consentValue":"checked"}],
+                        formPropertyId: 4,
+                        formSelector: '[method*="POST"]',
+                        subjectIdentifiers: [{"name":"name","selector":"[name = \"name\"]","isPrimary":false},{"name":"age","selector":"[name = \"age\"]","isPrimary":false},{"name":"phone","selector":"[name = \"phone\"]","isPrimary":false},{"name":"email","selector":"[name = \"email\"]","isPrimary":true},{"name":"submit","selector":"[name = \"submit\"]","isPrimary":false}],
+                        consentIdentifiers: [{"type":"NoUIElement","name":"DefaultElementId","selector":"DefaultElementSelector","propertyId":70,"consentValue":"DefaultConsentValue"}],
                         consentTrigger: {
-                            action: 'submit',
-                            selector: ''
+                            action: 'click',
+                            selector: '[type="submit"]'
                         }
                     };
 
