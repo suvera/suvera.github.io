@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en" class="h-100">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <meta name="description" content="SuVeRa Open Source Projects">
+    <meta name="author" content="Ramanarayana Narmala">
+    <meta name="generator" content="Jekyll v4.1.1">
+    <title>Test Page - Cookie Consent</title>
+
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css"
+          integrity="sha384-JcKb8q3iqJ61gNV9KGb8thSsNjpSL0n8PARn9HuZOnIxN0hoP+VmmDGMN5t9UJ0Z" crossorigin="anonymous">
+
+    <meta name="theme-color" content="#563d7c">
+
+    <style>
+        .bd-placeholder-img {
+            font-size: 1.125rem;
+            text-anchor: middle;
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+            user-select: none;
+        }
+
+        @media (min-width: 768px) {
+            .bd-placeholder-img-lg {
+                font-size: 3.5rem;
+            }
+        }
+
+        .container {
+            width: auto;
+            max-width: 780px;
+            padding: 0 15px;
+        }
+
+        .footer {
+            background-color: #f5f5f5;
+        }
+    </style>
+</head>
+<body class="d-flex flex-column h-100">
+
+<main role="main" class="flex-shrink-0">
+    <div class="container">
+        <h1 class="mt-3">COVID-19 Vaccine Consent Form - 1111 </h1>
+        <hr/>
+
+        <div>
+            <p class="lead">
+              The COVID-19 vaccine will reduce the risk of being suffering from the new type of Coronavirus disease as known as COVID-19. 
+            </p>
+            <p class="lead">
+              <b>Please be aware that the vaccine is not completely effective like all other medicines</b>. 
+              It can take a few weeks for your body to 
+              build up protection from the vaccine. There is always a chance to get infected by Coronavirus even with the vaccine; however, 
+              the vaccine lessens the severity of any infection. Two doses will reduce the chance of being seriously ill and reduce the 
+              risk of death due to Coronavirus.
+
+You still need to follow the health instructions in your workplace and in public areas, such as wearing a mask and keeping the 
+              distance from others after you received the COVID-19 vaccine.
+
+The vaccine has some side effects as the other vaccines/medicines, but not everyone gets them. 
+
+The most likely side effects that you may experience from the vaccine
+            </p>
+        </div>
+      
+      <div>
+          <form action="thank_you.html" method="POST">
+              <p>Name: <input type="text" name="name"/></p>
+              <p>Age: <input type="text" name="age"/></p>
+              <p>Phone: <input type="text" name="phone"/></p>
+              <p>Email: <input type="text" name="email"/></p>
+              
+              <p><input type="submit" name="submit" value="Submit"/></p>
+          </form>
+      </div>
+        
+    </div>
+</main>
+
+<footer class="footer mt-auto py-3">
+    <div class="container">
+        <span class="text-muted">Test Page - Consent Form</span>
+    </div>
+</footer>
+
+<script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"
+        integrity="sha384-DfXdz2htPH0lsSSs5nCTpuj/zy4C+OGpamoFVy38MVBnE+IbbVYUew+OrCXaRkfj"
+        crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/popper.js@1.16.1/dist/umd/popper.min.js"
+        integrity="sha384-9/reFTGAW83EW2RDu2S0VKaIzap3H66lZH81PoYlFhbGU+6BZp6G7niu735Sk7lN"
+        crossorigin="anonymous"></script>
+<script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"
+        integrity="sha384-B4gt1jrGC7Jh4AgTPSdUtOBvfO8shuf57BaghqFfPlYxofvL8/KUEfYiJOMMV+rV"
+        crossorigin="anonymous"></script>
+
+<script>
+                    window.addEventListener('load', function() {
+                    var codeGenMetadata = {
+                        // todo: put form id here
+                        formPropertyId: 3,
+                        formSelector: '[aaa*="aa"]',
+                        subjectIdentifiers: [{"name":"bbbb","selector":"bbb","isPrimary":true}],
+                        consentIdentifiers: [{"type":"checkbox","name":"xxx","selector":"xxx","propertyId":69,"consentValue":"checked"}],
+                        consentTrigger: {
+                            action: 'submit',
+                            selector: ''
+                        }
+                    };
+
+                    var form, forms = document.querySelectorAll(codeGenMetadata.formSelector);
+                    if (forms.length > 1) {
+                        for (var i = 0; i < forms.length; i++) {
+                            if (forms[i].querySelector(codeGenMetadata.consentTrigger.selector)) {
+                                form = forms[i]
+                                break;
+                            }
+                        }
+                    } else {
+                        form = forms[0];
+                    }
+
+                    if (!form) {
+                        return;
+                    }
+
+                    var browserFingerPrint = ''
+                    var s = document.createElement('script');
+                    s.async = 1;
+                    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/fingerprintjs2/2.1.0/fingerprint2.js';
+                    var parent_node = document.head || document.body;
+                    parent_node.appendChild(s);
+                    s.addEventListener('load', function() {
+                        Fingerprint2.get(function(components) {
+                            browserFingerPrint = Fingerprint2.x64hash128(components.map(function(pair) {
+                                return pair.value
+                            }).join(), 31)
+                        })
+                    });
+
+                    var isConsentTaken = false
+                    var prepareConsentPayload = function(formEle) {
+                        if (!isConsentTaken) {
+                            isConsentTaken = true
+                            var payload = {
+                                form_info: {
+                                    subject_info: {}
+                                },
+                                consent_info: [],
+                                browser_finger_print: browserFingerPrint,
+                                policy_version: 1,
+                                form_property_id: codeGenMetadata.formPropertyId,
+                                uuid: '',
+                                uuids: {}
+                            }
+
+                            if (codeGenMetadata.consentIdentifiers.length === 1 && codeGenMetadata.consentIdentifiers[0].name === 'DefaultElementId') {
+                                payload.consent_info.push({
+                                    granted: true,
+                                    timestamp: parseInt(new Date().getTime() / 1000),
+                                    property_id: parseInt(codeGenMetadata.consentIdentifiers[0].propertyId)
+                                })
+                            } else {
+                                codeGenMetadata.consentIdentifiers.forEach(function(identifier) {
+                                    payload.consent_info.push({
+                                        granted: getGranted(identifier, formEle),
+                                        timestamp: parseInt(new Date().getTime() / 1000),
+                                        property_id: parseInt(identifier.propertyId)
+                                    })
+                                })
+                            }
+
+                            codeGenMetadata.subjectIdentifiers.forEach(function(identifier) {
+                                payload.form_info.subject_info[identifier.name] = formEle.querySelector(identifier.selector) && formEle.querySelector(identifier.selector).value || ''
+                                if (identifier.isPrimary) {
+                                    payload.uuid = payload.form_info.subject_info[identifier.name] || ''
+                                    payload.uuids[identifier.name] = payload.form_info.subject_info[identifier.name] || ''
+                                }
+                            })
+                            return payload
+                        }
+                    }
+
+                    function getGranted(identifier, formEle) {
+                        if (identifier.type == 'checkbox') {
+                            var checkboxElement = formEle.querySelector(identifier.selector);
+                            var parent = checkboxElement && checkboxElement.parentNode;
+                            if (parent && parent.tagName === 'LABEL' && parent.offsetHeight === 0) {
+                                parent = parent.parentNode
+                            }
+                            if (parent && parent.offsetHeight > 0) {
+                                return identifier.consentValue === 'checked' ? checkboxElement.checked : !checkboxElement.checked;
+                            }
+                            return false;
+                        } else {
+                            var radioElements = formEle.querySelectorAll(identifier.selector);
+                            var parent = radioElements[0] && radioElements[0].parentNode;
+                            if (parent && parent.tagName === 'LABEL' && parent.offsetHeight === 0) {
+                                parent = parent.parentNode
+                            }
+                            if (parent && parent.offsetHeight > 0) {
+                                return identifier.consentValue === Array.prototype.slice.call(radioElements).filter(function(r) { return r.checked })[0].value;
+                            }
+                            return false;
+                        }
+                    }
+
+                    function postConsentedItems(consentedItem) {
+                        var xhr = new XMLHttpRequest();
+                        xhr.open('POST', 'https://dev-intg-1.securiti.xyz/privaci/v1/consent/form/singleupload', false);
+                        xhr.setRequestHeader('Content-type', 'application/json');
+                        xhr.setRequestHeader('X-Auth-Token', 'd6615172-b5b7-4ad9-9348-18a5facce285');
+                        xhr.setRequestHeader('X-ORG-ID', '34');
+
+                        xhr.onload = function () {
+                            if (this.status >= 200 && this.status < 300) {
+                                var resp = JSON.parse(xhr.response)
+                                if (resp.status === 0) {
+                                    console.log('consent uploaded successfully');
+                                }
+                            } else {
+                                console.log('consent upload failed', this.status, xhr.statusText);
+                            }
+                            setTimeout(function () { isConsentTaken = false }, 0)
+                        };
+                        xhr.onerror = function () {
+                            console.log('consent upload failed', this.status, xhr.statusText);
+                            setTimeout(function () { isConsentTaken = false }, 0)
+                        };
+                        xhr.send(JSON.stringify(consentedItem));
+                    }
+
+                    var uploadConsent = function () {
+                        var payload = prepareConsentPayload(form)
+                        if(payload) {
+                            return postConsentedItems(payload);
+                        }
+                    }
+
+                    form.addEventListener('submit', function () {
+                        uploadConsent()
+                    })
+
+                    if (codeGenMetadata.consentTrigger.action === 'click') {
+                        var trigger = form.querySelector(codeGenMetadata.consentTrigger.selector)
+                            if (trigger) {
+                                trigger.addEventListener(codeGenMetadata.consentTrigger.action, function () {
+                                    uploadConsent()
+                                })
+                            }
+                        }
+                    })</script>
+
+</body>
+</html>
