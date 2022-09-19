@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <html>
 <body>
-<link rel='stylesheet' type='text/css' href='https://cdn-prod.securiti.ai/consent/cookie-consent.css' />
+<!--<link rel='stylesheet' type='text/css' href='https://cdn-prod.securiti.ai/consent/cookie-consent.css' />-->
+<link rel='stylesheet' type='text/css' href='https://cdn-dev.securiti.xyz/consent/cookie-consent.css' />
+
 
 <h2>Banner Here</h2>
 
-<!-- After adding this script, call setConsentBannerParams({uuid: <unique id> }) to set unique ID for a customer. -->
+<!--
 <script>
 (function () {
 	var s = document.createElement('script');
@@ -13,6 +15,22 @@
 	s.setAttribute('data-tenant-uuid', '41a22e3a-8e30-4da9-bda6-e152c5208ee5');
 	s.setAttribute('data-domain-uuid', 'd665b84d-67e9-4748-80c1-09ff15bf81f5');
 	s.setAttribute('data-backend-url', 'https://app.securiti.ai');
+	s.defer = true;
+	var parent_node = document.head || document.body;
+	parent_node.appendChild(s);
+	s.addEventListener('load', function() { window.initCmp(); });
+})()
+</script>
+-->
+	
+<script type="text/javascript" src="https://cdn-dev.securiti.xyz/consent/sdk-stub.js" defer></script>
+<script>
+(function () {
+	var s = document.createElement('script');
+	s.src = 'https://cdn-dev.securiti.xyz/consent/cookie-consent-sdk.js';
+	s.setAttribute('data-tenant-uuid', '7db1b047-de35-40ff-87d4-44f8737d4525');
+	s.setAttribute('data-domain-uuid', 'e7d0680d-0179-4f84-b9f2-fa11c6aeef40');
+	s.setAttribute('data-backend-url', 'https://dev.securiti.xyz');
 	s.defer = true;
 	var parent_node = document.head || document.body;
 	parent_node.appendChild(s);
