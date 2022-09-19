@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<body>
+<link rel='stylesheet' type='text/css' href='https://cdn-prod.securiti.ai/consent/cookie-consent.css' />
+
+<h2>Banner Here</h2>
+
+<!-- After adding this script, call setConsentBannerParams({uuid: <unique id> }) to set unique ID for a customer. -->
+<script>
+(function () {
+	var s = document.createElement('script');
+	s.src = 'https://cdn-prod.securiti.ai/consent/cookie-consent-sdk.js';
+	s.setAttribute('data-tenant-uuid', '41a22e3a-8e30-4da9-bda6-e152c5208ee5');
+	s.setAttribute('data-domain-uuid', 'd665b84d-67e9-4748-80c1-09ff15bf81f5');
+	s.setAttribute('data-backend-url', 'https://app.securiti.ai');
+	s.defer = true;
+	var parent_node = document.head || document.body;
+	parent_node.appendChild(s);
+	s.addEventListener('load', function() { window.initCmp(); });
+})()
+</script>
+
+</body>
+</html>
