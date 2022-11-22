@@ -120,6 +120,15 @@ function eraseCookie(name) {
 
 (function () {
 	
+	var s = document.createElement('script');
+	s.src = 'https://cdn-qa.securiti.xyz/consent/auto_blocking/927c6995-0c8b-4557-baca-44149d411d81/04834f6d-5154-4224-af40-ab2ed979bd98.js?dummy=' + new Date().getTime();
+	s.setAttribute('data-tenant-uuid', '7db1b047-de35-40ff-87d4-44f8737d4525');
+	s.setAttribute('data-domain-uuid', 'e7d0680d-0179-4f84-b9f2-fa11c6aeef40');
+	s.setAttribute('data-backend-url', 'https://dev.securiti.xyz');
+	s.defer = true;
+	var parent_node = document.head || document.body;
+	parent_node.appendChild(s);
+	
 	setCookie('black_hole_size', '50l', 7);
 	setCookie('remember_me', 'true', 7);
 	var s = document.createElement('script');
@@ -133,5 +142,8 @@ function eraseCookie(name) {
 	s.addEventListener('load', function() { window.initCmp(); });
 })()
 </script>
+	
+	// <script type="text/javascript" src=""></script>
+
 </body>
 </html>
