@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-    <meta name="description" content="SuVeRa Open Source Projects">
+    <meta name="description" content="Curio.COM">
     <meta name="author" content="Ramanarayana Narmala">
     <meta name="generator" content="Jekyll v4.1.1">
     <title>Test Page - Cookie Consent</title>
@@ -12,6 +12,7 @@
           integrity="sha384-JcKb8q3iqJ61gNV9KGb8thSsNjpSL0n8PARn9HuZOnIxN0hoP+VmmDGMN5t9UJ0Z" crossorigin="anonymous">
 
     <meta name="theme-color" content="#563d7c">
+    <!--<script type="text/javascript" src="https://xyz.curio.com:1443/consent/auto_block.js"></script>-->
 
     <style>
         .bd-placeholder-img {
@@ -40,6 +41,8 @@
         }
     </style>
     <link rel='stylesheet' type='text/css' href='https://cdn-dev.securiti.xyz/consent/cookie-consent.css' />
+
+
 	<!-- Google Tag Manager -->
 <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
 new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
@@ -56,9 +59,11 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
 <!-- End Google Tag Manager (noscript) -->
 <main role="main" class="flex-shrink-0">
     <div class="container">
-        <h1 class="mt-3">Test Page</h1>
+        <h1 class="mt-3">CURIO.com (dev-intg-1)</h1>
         <hr/>
-
+        <div>
+            <button onclick="addNewScript();">Add Script</button>
+        </div>
         <div>
             <p class="lead">
               Supermassive black hole (BH) binaries are thought to produce self-lensing flares (SLF) when the two BHs are 
@@ -68,19 +73,23 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
               proposed here could make it possible to extract BH shadows that are spatially unresolvable by high-resolution VLBI.
 
             </p>
-            <p><a href="https://arxiv.org/abs/2112.05829"
-                  title="SCIM 2.0 Compliance Test Utility" aria-label="SCIM 2.0 Compliance Test Utility">
-                <img src="assets/images/GitHub_Logo.png" style="width: 50px;" alt="GitHub scim2-compliance-test-utility"
-                     title="GitHub scim2-compliance-test-utility"/>
-                https://arxiv.org/abs/2112.05829</a></p>
+            <h3>This is Main domain page</h3>
+
+
+<button class="cmp-revoke-consent">Revoke Consent</button>
+
+            <p>
+                <textarea rows="6" cols="80"></textarea>
+            </p>
+            <p><a href="https://abc.curio.com:1443/"
+                  title="abc" aria-label="abc">Go to sub-domain -> abc.curio.com</a></p>
         </div>
-        
     </div>
 </main>
 
 <footer class="footer mt-auto py-3">
     <div class="container">
-        <span class="text-muted">Test Page - Cookie Consent</span>
+        <span class="text-muted">Test Page - Cookie Consent (dev-intg-1)</span>
     </div>
 </footer>
 
@@ -94,13 +103,27 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
         integrity="sha384-B4gt1jrGC7Jh4AgTPSdUtOBvfO8shuf57BaghqFfPlYxofvL8/KUEfYiJOMMV+rV"
         crossorigin="anonymous"></script>
 <!-- After adding this script, call setConsentBannerParams({uuid: <unique id> }) to set unique ID for a customer. -->
+
+<script type="text/javascript" src="https://cdn-dev.securiti.xyz/consent/sdk-stub.js" defer></script>
 <script>
-function setCookie(name,value,days) {
+let counter = 1;
+function addNewScript() {
+    var s = document.createElement('script');
+    s.src = 'https://www.youtube.com/s/player/4eb6b35d/player_ias.vflset/en_US/miniplayer.js?value=' + counter;
+    counter++;
+    s.async = "true";
+    var parent_node = document.body;
+    parent_node.appendChild(s);
+}
+function setCookie(name,value,days, domain) {
     var expires = "";
     if (days) {
         var date = new Date();
         date.setTime(date.getTime() + (days*24*60*60*1000));
         expires = "; expires=" + date.toUTCString();
+    }
+    if (domain) {
+        //expires += "; Domain=" + domain;
     }
     document.cookie = name + "=" + (value || "")  + expires + "; path=/";
 }
@@ -119,26 +142,30 @@ function eraseCookie(name) {
 }
 
 (function () {
-	
-	var abs = document.createElement('script');
-	abs.src = 'https://cdn-qa.securiti.xyz/consent/auto_blocking/927c6995-0c8b-4557-baca-44149d411d81/04834f6d-5154-4224-af40-ab2ed979bd98.js?dummy=' + new Date().getTime();
-	document.head.appendChild(abs);
-	
-	setCookie('black_hole_size', '50l', 7);
-	setCookie('remember_me', 'true', 7);
-	var s = document.createElement('script');
-	s.src = 'https://cdn-dev.securiti.xyz/consent/cookie-consent-sdk.js';
-	s.setAttribute('data-tenant-uuid', '7db1b047-de35-40ff-87d4-44f8737d4525');
-	s.setAttribute('data-domain-uuid', 'e7d0680d-0179-4f84-b9f2-fa11c6aeef40');
-	s.setAttribute('data-backend-url', 'https://dev.securiti.xyz');
-	s.defer = true;
-	var parent_node = document.head || document.body;
-	parent_node.appendChild(s);
-	s.addEventListener('load', function() { window.initCmp(); });
+    var s = document.createElement('script');
+    s.src = 'https://cdn-prod.securiti.ai/consent/cookie-consent-sdk.js';
+    //s.src = 'https://abc.curio.com:1443/consent/sdk.js';
+    s.setAttribute('data-tenant-uuid', '4b9bbe2a-9c5d-4512-bb76-768a8ea32bc0');
+    s.setAttribute('data-domain-uuid', 'cc730d05-9ec1-4ce6-9756-57f0eb653650');
+    s.setAttribute('data-backend-url', 'https://app.securiti.ai');
+    s.defer = true;
+    var parent_node = document.head || document.body;
+    parent_node.appendChild(s);
+    s.addEventListener('load', function() { window.initCmp(); });
+})()
+
+</script>
+info_outline
+
+
+
+
 })()
 </script>
-	
-	// <script type="text/javascript" src=""></script>
+<script type="text/javascript" src="//suvera.github.io/blocked_script_01.js?q=55555"></script>
+<script type="text/javascript" src="http://suvera.github.io/blocked_script_02.js"></script>
+<script type="text/javascript" src="https://suvera.github.io/unblocked_script_50.js"></script>
+<script type="text/javascript" src="https://cdn-prod.securiti.ai/consent/auto_blocking/4b9bbe2a-9c5d-4512-bb76-768a8ea32bc0/cc730d05-9ec1-4ce6-9756-57f0eb653650.js" async></script>
 
 </body>
 </html>
