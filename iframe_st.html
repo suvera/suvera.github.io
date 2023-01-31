@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en" class="h-100">
+  <body>
+    <h1>inframe loaded</h1>
+    <script>
+      function setCookie(cname, cvalue, exdays) {
+        const d = new Date();
+        d.setTime(d.getTime() + (exdays*24*60*60*1000));
+        let expires = "expires="+ d.toUTCString();
+        document.cookie = cname + "=" + cvalue + ";" + expires + ";path=/";
+      }
+      
+      setCookie("xxxxxx34444", "some value444", 7);
+    </script>
+  </body>
+</html>
