@@ -37,8 +37,9 @@
         console.log('privaci_uuid re-used: ' + privaci_uuid)
       }
       
-      let event = new CustomEvent('securiti_cookie_singleid', { privaci_uuid: privaci_uuid, uuid_status: action })
-      window.parent.document.dispatchEvent(event)
+      //let event = new CustomEvent('securiti_cookie_singleid', { privaci_uuid: privaci_uuid, uuid_status: action })
+      //window.parent.document.dispatchEvent(event)
+      window.parent.postMessage({ privaci_uuid: privaci_uuid, uuid_status: action, message: 'securiti_cookie_singleid'}, '*');
     </script>
   </body>
 </html>
