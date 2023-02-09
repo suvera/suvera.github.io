@@ -26,16 +26,18 @@
       }
       
       let privaci_uuid = localStorage.getItem("privaci_uuid");
+      let action = "re-used"
       if (!privaci_uuid) {
         privaci_uuid = generateUUID();
         localStorage.setItem("privaci_uuid", privaci_uuid);
         console.log('privaci_uuid generated (NEW): ' + privaci_uuid)
+        action = 'NewlyGenerated'
         setCookie("privaci_uuid", privaci_uuid, 7);
       } else {
         console.log('privaci_uuid re-used: ' + privaci_uuid)
       }
       
-      let event = new CustomEvent('securiti_cookie_singleid', { privaci_uuid: privaci_uuid })
+      let event = new CustomEvent('securiti_cookie_singleid', { privaci_uuid: privaci_uuid, uuid_status: action })
       window.parent.document.dispatchEvent(event)
     </script>
   </body>
