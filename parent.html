@@ -79,7 +79,7 @@
     function handleMessage(e) {
         console.log(e);
         let d = document.getElementById('iframe_collected_data');
-        d.innerHTML += '<p>Recieved event from iframe: ' + JSON.stringify(e.data) + '</p>';
+        d.innerHTML += '<p>Recieved event from iframe: <br>' + JSON.stringify(e.data, , null, 4) + '</p>';
      }
     window.addEventListener('message', handleMessage, false);
 </script>
