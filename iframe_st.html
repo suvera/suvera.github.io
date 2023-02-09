@@ -3,17 +3,40 @@
   <body>
     <h1>inframe loaded</h1>
     <script>
+      function generateUUID() {
+          var d = new Date().getTime();//Timestamp
+          var d2 = ((typeof performance !== 'undefined') && performance.now && (performance.now()*1000)) || 0;
+          return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+              var r = Math.random() * 16;
+              if(d > 0){
+                  r = (d + r)%16 | 0;
+                  d = Math.floor(d/16);
+              } else {
+                  r = (d2 + r)%16 | 0;
+                  d2 = Math.floor(d2/16);
+              }
+              return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+          });
+      }
       function setCookie(cname, cvalue, exdays) {
         const d = new Date();
         d.setTime(d.getTime() + (exdays*24*60*60*1000));
         let expires = "expires="+ d.toUTCString();
-        document.cookie = cname + "=" + cvalue + ";" + expires + ";path=/;SameSite=Lax;Secure=true;";
+        document.cookie = cname + "=" + cvalue + ";" + expires + ";path=/;SameSite=None;Secure=true;";
       }
       
-      setCookie("xxxxxx34444", "some value444", 7);
+      let privaci_uuid = localStorage.getItem("privaci_uuid");
+      if (!privaci_uuid) {
+        privaci_uuid = generateUUID();
+        localStorage.setItem("privaci_uuid", privaci_uuid);
+        console.log('privaci_uuid generated (NEW): ' + privaci_uuid)
+        setCookie("privaci_uuid", privaci_uuid, 7);
+      } else {
+        console.log('privaci_uuid re-used: ' + privaci_uuid)
+      }
       
-      console.log(localStorage.getItem("foooooo"))
-      localStorage.setItem("foooooo", "baaaaaaar22");
+      let event = new CustomEvent('securiti_cookie_singleid', { privaci_uuid: privaci_uuid })
+      window.parent.document.dispatchEvent(event)
     </script>
   </body>
 </html>
