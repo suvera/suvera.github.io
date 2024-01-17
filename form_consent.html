@@ -97,12 +97,11 @@ The most likely side effects that you may experience from the vaccine
         integrity="sha384-B4gt1jrGC7Jh4AgTPSdUtOBvfO8shuf57BaghqFfPlYxofvL8/KUEfYiJOMMV+rV"
         crossorigin="anonymous"></script>
 
-    
 
                                 <script src='https://cdn-dev.securiti.xyz/consent/form-consent-sdk.js'></script>
                                 <script>window.addEventListener('load',
     FormConsentSDK.initialize({
-        codeGenMetadata:{"formPropertyId":"3","formSelector":"[id*=\"contact-form\"]","subjectIdentifiers":[{"name":"Name*","selector":"[name = \"name\"]","isPrimary":false},{"name":"Email*","selector":"[name = \"email\"]","isPrimary":true},{"name":"Subject*","selector":"[name = \"subject\"]","isPrimary":false},{"name":"submit","selector":"[value = \"Submit\"]","isPrimary":false}],"consentIdentifiers":[{"type":"NoUIElement","name":"DefaultElementId","selector":"DefaultElementSelector","propertyId":569,"consentValue":"DefaultConsentValue"}],"consentTrigger":{"action":"click","selector":"[type=\"submit\"]"}},
+        codeGenMetadata:{"formPropertyId":"3","formSelector":"[method*=\"POST\"]","subjectIdentifiers":[{"name":"name","selector":"[name = \"name\"]","isPrimary":false},{"name":"age","selector":"[name = \"age\"]","isPrimary":false},{"name":"phone","selector":"[name = \"phone\"]","isPrimary":false},{"name":"email","selector":"[name = \"email\"]","isPrimary":true},{"name":"submit","selector":"[name = \"submit\"]","isPrimary":false}],"consentIdentifiers":[{"type":"NoUIElement","name":"DefaultElementId","selector":"DefaultElementSelector","propertyId":570,"consentValue":"DefaultConsentValue"}],"consentTrigger":{"action":"click","selector":"[type=\"submit\"]"}},
         url: 'https://dev.securiti.xyz/privaci/v1/',
         authToken:'c7acc5ac-99a2-4faa-a22d-53fead1c9579',
         orgId:'1',
