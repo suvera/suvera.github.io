@@ -28,7 +28,7 @@ build/
 *.ipr
 out/
 maven/node_modules/
-maven/dev/suvera/scim2/scim2-sdk-server-example/1.0.0/
+maven/dev/suvera/scim2/scim2-sdk-server-example/
 
 ### NetBeans ###
 /nbproject/private/
