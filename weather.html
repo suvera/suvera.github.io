@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Weather Widget</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 15px;
+            background-color: #f0f8ff;
+            color: #333;
+        }
+        .weather-widget {
+            background: linear-gradient(to bottom, #87CEEB, #1E90FF);
+            border-radius: 10px;
+            padding: 15px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            color: white;
+            text-align: center;
+        }
+        .weather-icon {
+            font-size: 48px;
+            margin: 10px 0;
+        }
+        .temperature {
+            font-size: 36px;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+        .location {
+            font-size: 18px;
+            margin-bottom: 10px;
+        }
+        .details {
+            display: flex;
+            justify-content: space-around;
+            margin-top: 20px;
+            background-color: rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            padding: 10px;
+        }
+        .detail {
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="weather-widget">
+        <div class="location">San Francisco, CA</div>
+        <div class="weather-icon">☀️</div>
+        <div class="temperature">72°F</div>
+        <div class="forecast">Sunny with clear skies</div>
+        <div class="details">
+            <div class="detail">
+                <div>Humidity</div>
+                <div>45%</div>
+            </div>
+            <div class="detail">
+                <div>Wind</div>
+                <div>8 mph</div>
+            </div>
+            <div class="detail">
+                <div>Pressure</div>
+                <div>1012 hPa</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Simple animation to simulate changing weather
+        const weatherIcons = ['☀️', '⛅', '🌤️', '🌥️', '☁️'];
+        let iconIndex = 0;
+        
+        setInterval(() => {
+            iconIndex = (iconIndex + 1) % weatherIcons.length;
+            document.querySelector('.weather-icon').textContent = weatherIcons[iconIndex];
+            
+            // Slightly change temperature
+            const temp = Math.round(70 + Math.random() * 5);
+            document.querySelector('.temperature').textContent = `${temp}°F`;
+        }, 3000);
+    </script>
+</body>
+</html>

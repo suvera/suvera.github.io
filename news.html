@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Daily News Widget</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            margin: 0;
+            padding: 12px;
+            background-color: #f9f9f9;
+            color: #333;
+        }
+        .news-container {
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            overflow: hidden;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .news-header {
+            background-color: #2c3e50;
+            color: white;
+            padding: 10px 15px;
+            font-weight: bold;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .news-logo {
+            font-size: 18px;
+            letter-spacing: 1px;
+        }
+        .date {
+            font-size: 14px;
+            font-weight: normal;
+        }
+        .news-item {
+            padding: 12px 15px;
+            border-bottom: 1px solid #eee;
+            transition: background-color 0.2s;
+        }
+        .news-item:last-child {
+            border-bottom: none;
+        }
+        .news-item:hover {
+            background-color: #f0f0f0;
+            cursor: pointer;
+        }
+        .headline {
+            font-weight: bold;
+            margin-bottom: 5px;
+            color: #2c3e50;
+        }
+        .summary {
+            font-size: 14px;
+            color: #666;
+            line-height: 1.4;
+        }
+        .footer {
+            text-align: center;
+            padding: 8px;
+            background-color: #ecf0f1;
+            font-size: 12px;
+            color: #7f8c8d;
+        }
+    </style>
+</head>
+<body>
+    <div class="news-container">
+        <div class="news-header">
+            <div class="news-logo">📰 DAILY BRIEFING</div>
+            <div class="date" id="current-date"></div>
+        </div>
+        <div class="news-item">
+            <div class="headline">New Breakthrough in Renewable Energy Storage</div>
+            <div class="summary">Scientists have developed a new battery technology that could revolutionize how we store renewable energy, making it more efficient and accessible.</div>
+        </div>
+        <div class="news-item">
+            <div class="headline">Global Tech Conference Announces Virtual Edition</div>
+            <div class="summary">The annual technology conference will be held virtually this year, featuring keynotes from industry leaders and interactive workshops.</div>
+        </div>
+        <div class="news-item">
+            <div class="headline">Local Parks to Undergo Renovation</div>
+            <div class="summary">City council approves funding for major renovations to three local parks, including new playgrounds and sustainable landscaping.</div>
+        </div>
+        <div class="footer">
+            For illustration purposes only. Not real news.
+        </div>
+    </div>
+
+    <script>
+        // Update the current date
+        document.getElementById('current-date').textContent = new Date().toLocaleDateString('en-US', {
+            weekday: 'short',
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric'
+        });
+        
+        // Add click interaction to news items
+        document.querySelectorAll('.news-item').forEach(item => {
+            item.addEventListener('click', function() {
+                this.style.backgroundColor = '#e1f5fe';
+                setTimeout(() => {
+                    this.style.backgroundColor = '';
+                }, 300);
+            });
+        });
+    </script>
+</body>
+</html>
