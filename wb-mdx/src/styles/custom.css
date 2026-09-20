@@ -1,0 +1,15 @@
+/* 1. Expand the main page container grid */
+:root {
+  --sl-content-width: 85rem !important; 
+}
+
+/* 2. Expand the internal content column widths safely */
+.main-frame, .content-panel {
+  max-width: 100% !important;
+}
+
+/* 3. Make the prose block wide on desktop, but safe on small screens */
+.prose {
+  max-width: 65rem !important; 
+  width: 100%; /* Force the text tracking to match small screens fluidly */
+}

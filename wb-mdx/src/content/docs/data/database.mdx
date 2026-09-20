@@ -1,0 +1,575 @@
+---
+title: "Configuring Database Access with PdbcTemplate in Winter Boot"
+sidebar:
+  label: "Database"
+description: "Set up datasources, inject PdbcTemplate, execute typed queries, map rows to PPA entities, and manage multi-tenant connections in Winter Boot."
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Winter Boot's database layer wraps PHP's native PDO (and optional OCI) extensions behind the `PdbcTemplate` interface, giving you a clean, injection-friendly API for executing SQL without managing connections, prepared statements, or result-set iteration yourself. Each configured datasource automatically produces a named `PdbcTemplate` bean and a transaction manager bean you can inject anywhere in your application.
+
+<Aside type="tip">
+  Need full ORM entities and repositories instead of raw SQL? The [Winter Doctrine module](/modules/doctrine) plugs Doctrine ORM and DBAL into the same datasource configuration.
+</Aside>
+
+## Datasource Configuration
+
+Declare datasources in `application.yml` under the top-level `datasource` key. You may configure as many datasources as you need — mark exactly one as the primary with `isPrimary: true`.
+
+```yaml title="application.yml"
+datasource:
+    -   name: defaultdb
+        isPrimary: true
+        url: "sqlite::memory:"
+        username: myuser
+        password: mypassword
+        connection:
+            persistent: false
+            errorMode: ERRMODE_EXCEPTION
+            columnsCase: CASE_NATURAL
+            idleTimeout: 600
+            autoCommit: true
+
+    -   name: admindb
+        url: "mysql:host=localhost;port=3307;dbname=testdb"
+        username: adminuser
+        password: adminpassword
+        connection:
+            persistent: true
+            errorMode: ERRMODE_EXCEPTION
+            columnsCase: CASE_NATURAL
+            idleTimeout: 300
+            autoCommit: true
+```
+
+### Top-Level Datasource Properties
+
+- **`isPrimary`** `bool` (default: `false`)
+  Mark this datasource as the primary. The primary datasource's `PdbcTemplate` is injected with a plain `#[Autowired]` (no qualifier needed).
+
+- **`validationQuery`** `string` (default: `''`)
+  SQL statement used to validate connections before use (e.g. `SELECT 1`).
+
+- **`driverClass`** `string` (default: `PdoDataSource`)
+  Fully-qualified class name of a custom `DataSource` implementation.
+
+### Connection Options Reference
+
+- **`persistent`** `bool` (default: `false`)
+  Use persistent PDO connections.
+
+- **`errorMode`** `string` (default: `ERRMODE_EXCEPTION`)
+  PDO error mode. One of `ERRMODE_SILENT`, `ERRMODE_WARNING`, or `ERRMODE_EXCEPTION`.
+
+- **`columnsCase`** `string` (default: `CASE_NATURAL`)
+  Column name case folding. One of `CASE_NATURAL`, `CASE_LOWER`, or `CASE_UPPER`.
+
+- **`idleTimeout`** `int` (default: `600`)
+  Seconds before an idle connection is recycled.
+
+- **`autoCommit`** `bool` (default: `true`)
+  Enable auto-commit for non-transactional operations.
+
+- **`timeoutSecs`** `int` (default: `30`)
+  Connection-level statement timeout in seconds.
+
+- **`rowsPrefetch`** `int` (default: `100`)
+  Number of rows to prefetch. Applies to the OCI driver only.
+
+---
+
+## Injecting PdbcTemplate
+
+Winter Boot automatically registers a `PdbcTemplate` bean for every configured datasource. Use a plain `#[Autowired]` to inject the primary datasource's template, or target a specific datasource by the `<datasource-name>-template` bean name.
+
+```php title="UserRepository.php"
+use dev\winterframework\pdbc\PdbcTemplate;
+use dev\winterframework\stereotype\Autowired;
+use dev\winterframework\stereotype\Service;
+
+#[Service]
+class UserRepository {
+
+    // Injected from the primary datasource (defaultdb)
+    #[Autowired]
+    private PdbcTemplate $pdbc;
+
+    // Injected from the named datasource "admindb"
+    #[Autowired("admindb-template")]
+    private PdbcTemplate $adminPdbc;
+}
+```
+
+<Aside type="tip">
+  The `-template` suffix is part of Winter Boot's automatic bean-naming convention. For every datasource named `<name>`, the framework registers a bean under `<name>-template`. You only need the suffix when injecting a **non-primary** template.
+</Aside>
+
+---
+
+## PdbcTemplate Methods
+
+Every method accepts either a plain PHP `array` (positional `?` or named `:name` placeholders) or a typed `BindVars` collection as its bind-variable argument.
+
+
+
+<details>
+<summary>execute — Run any SQL statement</summary>
+
+Execute any SQL statement and optionally receive the underlying `PreparedStatement` in a callback.
+
+| Parameter | Type | Description |
+|---|---|---|
+| `$sql` | `string` | SQL statement to execute |
+| `$bindVars` | `array\|BindVars` | Optional bind variables |
+| `$action` | `PreparedStatementCallback\|null` | Optional callback receiving the prepared statement |
+
+**Returns:** `mixed` — the result of the callback, or the raw execution result.
+
+```php
+// Simple DML
+$this->pdbc->execute(
+    "INSERT INTO audit_log (event, created_at) VALUES (?, NOW())",
+    ["user.login"]
+);
+```
+
+</details>
+
+<details>
+<summary>query — Stream results through a callback</summary>
+
+Execute a query and hand the result set to a processor callback, `ResultSetExtractor`, `RowCallbackHandler`, or `RowMapper`.
+
+```php
+use dev\winterframework\pdbc\ResultSet;
+
+$names = $this->pdbc->query(
+    "SELECT name FROM users WHERE active = ?",
+    [1],
+    function (ResultSet $rs) {
+        $results = [];
+        while ($rs->next()) {
+            $results[] = $rs->getString('name');
+        }
+        return $results;
+    }
+);
+```
+
+</details>
+
+<details>
+<summary>queryForList — Fetch all rows as arrays</summary>
+
+Return all result rows as an array of associative arrays.
+
+**Returns:** `array` — `[['col' => 'val', ...], ...]`
+
+```php
+$rows = $this->pdbc->queryForList(
+    "SELECT id, name, email FROM users WHERE status = ?",
+    ["active"]
+);
+
+foreach ($rows as $row) {
+    echo $row['name'] . ' — ' . $row['email'] . PHP_EOL;
+}
+```
+
+</details>
+
+<details>
+<summary>queryForMap — Fetch a single row as an array</summary>
+
+Return a single row as an associative array. Throws an exception if the query returns zero or more than one row.
+
+```php
+$user = $this->pdbc->queryForMap(
+    "SELECT * FROM users WHERE id = ?",
+    [42]
+);
+echo $user['email'];
+```
+
+</details>
+
+<details>
+<summary>queryForScalar — Fetch a single value</summary>
+
+Return the first column of the first row as a scalar value.
+
+```php
+$count = $this->pdbc->queryForScalar("SELECT COUNT(*) FROM users");
+echo "Total users: {$count}";
+```
+
+</details>
+
+<details>
+<summary>queryForObject — Map one row to an entity</summary>
+
+Map a single result row to an object using a class name or a custom `RowMapper`.
+
+```php
+$user = $this->pdbc->queryForObject(
+    "SELECT id, name, email FROM users WHERE id = ?",
+    [1],
+    User::class
+);
+echo $user->getName();
+```
+
+</details>
+
+<details>
+<summary>queryForObjects — Map multiple rows to entities</summary>
+
+Return multiple rows as an array of PPA entity objects.
+
+```php
+$users = $this->pdbc->queryForObjects(
+    "SELECT id, name, email FROM users WHERE status = ?",
+    ["active"],
+    User::class
+);
+
+foreach ($users as $user) {
+    echo $user->getName();
+}
+```
+
+</details>
+
+<details>
+<summary>update — INSERT, UPDATE, or DELETE</summary>
+
+Execute an `INSERT`, `UPDATE`, or `DELETE` statement. Supports OUT bind variables and retrieval of database-generated keys.
+
+```php
+$generatedKeys = [];
+$affected = $this->pdbc->update(
+    "INSERT INTO users (name, email, age) VALUES (:name, :email, :age) RETURNING id",
+    ['name' => 'Alice', 'email' => 'alice@example.com', 'age' => 30],
+    [],
+    $generatedKeys
+);
+
+$newId = intval($generatedKeys['id']);
+```
+
+</details>
+
+<details>
+<summary>batchUpdate — Execute a statement for multiple rows</summary>
+
+Execute the same parameterised SQL statement for multiple sets of bind variables in a single batch.
+
+```php
+$batchParams = [
+    ["Alice", "alice@example.com"],
+    ["Bob",   "bob@example.com"],
+    ["Carol", "carol@example.com"],
+];
+
+$results = $this->pdbc->batchUpdate(
+    "INSERT INTO users (name, email) VALUES (?, ?)",
+    $batchParams
+);
+```
+
+</details>
+
+<details>
+<summary>updateObjects — Persist PPA entity objects</summary>
+
+Persist one or more PPA entity objects. The framework generates the correct `INSERT` or `UPDATE` SQL automatically.
+
+```php
+$user = new User();
+$user->setName("Charlie");
+$user->setEmail("charlie@example.com");
+$user->setAge(25);
+
+$this->pdbc->updateObjects($user);
+```
+
+</details>
+
+<details>
+<summary>deleteObjects — Delete PPA entity objects</summary>
+
+Delete one or more PPA entity objects from the database.
+
+```php
+$user = $this->pdbc->queryForObject(
+    "SELECT * FROM users WHERE id = ?",
+    [42],
+    User::class
+);
+
+$this->pdbc->deleteObjects($user);
+```
+
+</details>
+
+
+
+---
+
+## BindVars — Typed Parameters
+
+For queries where you need explicit type control, use the `BindVars` fluent builder instead of a plain array.
+
+```php
+use dev\winterframework\pdbc\core\BindVars;
+use dev\winterframework\pdbc\core\BindType;
+
+$binds = (new BindVars())
+    ->add('status',   'active', BindType::STRING)
+    ->add('minAge',   18,       BindType::INTEGER)
+    ->add('score',    9.5,      BindType::FLOAT)
+    ->add('verified', true,     BindType::BOOL);
+
+$users = $this->pdbc->queryForObjects(
+    "SELECT * FROM users WHERE status = :status AND age >= :minAge AND score > :score AND verified = :verified",
+    $binds,
+    User::class
+);
+```
+
+### BindType Constants
+
+| Constant | Value | PHP Type |
+|---|---|---|
+| `BindType::STRING` | `3` | `string` / `mixed` |
+| `BindType::INTEGER` | `1` | `int` |
+| `BindType::FLOAT` | `2` | `float` |
+| `BindType::BOOL` | `4` | `bool` |
+| `BindType::DATE` | `5` | `DateTime` / `DateTimeInterface` |
+| `BindType::BLOB` | `6` | Binary large object |
+| `BindType::CLOB` | `7` | Character large object |
+| `BindType::NULL` | `8` | Explicit `NULL` |
+
+---
+
+## PPA — PHP Persistence API
+
+PPA is Winter Boot's lightweight ORM layer. An entity is any class annotated with `#[Table]` that either implements the `PpaEntity` interface or uses the `PpaEntityTrait` convenience trait. The framework automatically generates `INSERT`, `UPDATE`, and `DELETE` SQL and maps query result columns back to PHP properties.
+
+### Annotations
+
+Use `#[Table]` at the class level to map the class to a database table, and `#[Column]` at the property level to map each property to a column.
+
+- **`#[Table(name: string)]`**
+  Applied at class level. Maps the class to the named database table.
+
+**`#[Column]` options:**
+
+- **`name`** `string` (default: `property name`)
+  The database column name.
+
+- **`id`** `bool` (default: `false`)
+  Marks this column as the primary key.
+
+- **`insertable`** `bool` (default: `true`)
+  Include this column in `INSERT` statements.
+
+- **`updatable`** `bool` (default: `true`)
+  Include this column in `UPDATE` statements.
+
+- **`nullable`** `bool` (default: `true`)
+  Allow `NULL` values for this column.
+
+- **`length`** `int` (default: `0`)
+  Column length hint.
+
+- **`precision`** `int` (default: `0`)
+  Decimal precision.
+
+- **`scale`** `int` (default: `0`)
+  Decimal scale.
+
+### Full Entity Example
+
+```php title="User.php"
+use dev\winterframework\ppa\PpaEntity;
+use dev\winterframework\ppa\PpaEntityTrait;
+use dev\winterframework\stereotype\ppa\Column;
+use dev\winterframework\stereotype\ppa\Table;
+
+#[Table("users")]
+class User implements PpaEntity {
+    use PpaEntityTrait;
+
+    #[Column(name: "id", id: true, insertable: false, updatable: false)]
+    private int $id;
+
+    #[Column(name: "name", length: 100, nullable: false)]
+    private string $name;
+
+    #[Column(name: "email", length: 255, nullable: false)]
+    private string $email;
+
+    #[Column(name: "age")]
+    private int $age;
+
+    #[Column(name: "created_at", insertable: false, updatable: false)]
+    private ?string $createdAt = null;
+
+    public function getId(): int         { return $this->id; }
+    public function setId(int $id): void { $this->id = $id; }
+
+    public function getName(): string           { return $this->name; }
+    public function setName(string $name): void { $this->name = $name; }
+
+    public function getEmail(): string            { return $this->email; }
+    public function setEmail(string $email): void { $this->email = $email; }
+
+    public function getAge(): int        { return $this->age; }
+    public function setAge(int $age): void { $this->age = $age; }
+
+    public function getCreatedAt(): ?string { return $this->createdAt; }
+}
+```
+
+<Aside type="note">
+  Columns marked with `insertable: false, updatable: false` (like auto-generated `id` and `created_at` fields) are excluded from write operations but are still populated when reading rows back from the database.
+</Aside>
+
+---
+
+## Multi-Tenant Support
+
+Winter Boot provides first-class multi-tenancy via `MultiTenantManager` and the `TenantDataSourceProvider` contract. Each tenant gets its own lazily-created, cached `PdbcTemplate` and `PlatformTransactionManager` backed by a separate data source resolved at runtime.
+
+### Configure a Multi-Tenant Datasource
+
+```yaml title="application.yml"
+multitenant-datasource:
+    -   name: tenantdb
+        url: "mysql:host=localhost;port=3306"
+        providerClass: "App\\Config\\MyTenantDataSourceProvider"
+```
+
+When the application starts, Winter Boot registers a `MultiTenantManager` bean under the name `tenantdb-manager`.
+
+### Step 1 — Implement TenantDataSourceProvider
+
+Implement `TenantDataSourceProvider` to tell Winter Boot how to look up each tenant's connection details and how to enumerate all active tenants.
+
+```php title="MyTenantDataSourceProvider.php"
+namespace App\Config;
+
+use dev\winterframework\pdbc\datasource\DataSourceConfig;
+use dev\winterframework\pdbc\multitenant\TenantDataSourceProvider;
+use dev\winterframework\pdbc\PdbcTemplate;
+use dev\winterframework\stereotype\Autowired;
+use dev\winterframework\stereotype\Component;
+
+#[Component]
+class MyTenantDataSourceProvider implements TenantDataSourceProvider {
+
+    #[Autowired("admindb-template")]
+    private PdbcTemplate $adminPdbc;
+
+    public function getTenantDataSourceConfig(string $tenantId): DataSourceConfig {
+        $tenant = $this->adminPdbc->queryForObject(
+            "SELECT * FROM tenants WHERE tenant_id = :tid",
+            ['tid' => $tenantId],
+            YourTenantEntity::class
+        );
+
+        $config = new DataSourceConfig();
+        $config->setName($tenantId);
+        $config->setUrl("mysql:host={$tenant->dbHost};port={$tenant->dbPort};dbname={$tenant->database}");
+        $config->setUsername($tenant->username);
+        $config->setPassword("tenant_pass");
+        $config->setPersistent(true);
+        $config->setAutoCommit(true);
+
+        return $config;
+    }
+
+    public function getAllTenantIds(): array {
+        $tenants = $this->adminPdbc->queryForObjects(
+            "SELECT tenant_id FROM tenants WHERE status = 'Active'",
+            [],
+            YourTenantEntity::class
+        );
+
+        return array_map(fn($t) => $t->tenantId, $tenants);
+    }
+}
+```
+
+### Step 2 — Use MultiTenantManager in Business Classes
+
+Inject the `MultiTenantManager` bean and call `getPdbcTemplate()` or `getTransactionManager()` with the tenant ID at runtime.
+
+```php title="OrderService.php"
+use dev\winterframework\pdbc\multitenant\MultiTenantManager;
+use dev\winterframework\stereotype\Autowired;
+use dev\winterframework\stereotype\Component;
+use dev\winterframework\txn\support\DefaultTransactionDefinition;
+
+#[Component]
+class OrderService {
+
+    #[Autowired]
+    private MultiTenantManager $mt;  // resolves to "tenantdb-manager"
+
+    public function createOrder(string $tenantId, array $orderData): void {
+        $pdbc   = $this->mt->getPdbcTemplate($tenantId);
+        $txnMgr = $this->mt->getTransactionManager($tenantId);
+
+        $status = $txnMgr->getTransaction(new DefaultTransactionDefinition());
+        try {
+            $pdbc->update(
+                "INSERT INTO orders (customer, amount) VALUES (:customer, :amount)",
+                ['customer' => $orderData['customer'], 'amount' => $orderData['amount']]
+            );
+            $txnMgr->commit($status);
+        } catch (\Throwable $e) {
+            $txnMgr->rollback($status);
+            throw $e;
+        }
+    }
+}
+```
+
+### MultiTenantManager API
+
+| Method | Returns | Description |
+|---|---|---|
+| `getPdbcTemplate(string $tenantId)` | `PdbcTemplate` | Returns (or lazily creates) a `PdbcTemplate` for the given tenant |
+| `getTransactionManager(string $tenantId)` | `PlatformTransactionManager` | Returns (or lazily creates) a transaction manager for the given tenant |
+| `getTenantDataSourceProvider()` | `TenantDataSourceProvider` | Returns the configured provider instance |
+
+## Swoole: per-request connections with a safety cap
+
+Under Swoole, every request (or job, or message) that touches the database gets its own real database connection from its datasource pool, so two concurrent requests can never share (and corrupt) one. Requests that never touch the database open none, and every connection is closed when its request finishes.
+
+Each pool is capped at **50 open connections**. When all 50 are busy, the next request waits up to **5 seconds** for one to free up; if none does, it fails fast with a clear `PoolExhaustedException` instead of silently sharing a connection. The global defaults live under `winter.coroutine.db` (on under Swoole, off without it):
+
+```yaml
+winter:
+    coroutine:
+        db:
+            enabled: true       # kill switch: set to false to restore old behavior
+            maxConnections: 50  # max open DB connections per pool, 0 = unlimited (not recommended)
+            maxWaitMs: 5000     # how long to wait for a free connection before failing
+```
+
+A single datasource can override both caps in its own `connection` block (the override wins over the global defaults):
+
+```yaml
+datasource:
+    -   name: defaultdb
+        # ...
+        connection:
+            maxConnections: 50
+            maxWaitMs: 5000
+```
+
+How to size the cap: add up every pool (using each datasource's override where one is set), multiply by your Swoole worker count, and keep the total below the database's `max_connections` (MySQL defaults to 151, Postgres to 100). If the coroutine machinery itself fails, the failure is logged and the request degrades instead of crashing — but pool exhaustion stays loud with `PoolExhaustedException`.

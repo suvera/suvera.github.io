@@ -1,0 +1,151 @@
+---
+title: "Winter Boot: PHP Microservices Framework Documentation"
+sidebar:
+  label: "Home"
+description: "Official docs for Winter Boot, a PHP 8 microservices framework inspired by Spring Boot, with attribute-driven DI, REST routing, AOP, async, and scheduling."
+---
+
+import { CardGrid, LinkCard, Steps } from '@astrojs/starlight/components';
+
+Welcome to the Winter Boot documentation. Winter Boot is a modern PHP 8 microservices framework inspired by Spring Boot, bringing attribute-driven dependency injection, AOP, REST routing, async task execution, caching, transactions, and scheduling to the PHP ecosystem. Whether you are migrating from a Spring Boot project or starting fresh, this documentation covers everything you need to build, configure, and deploy production-ready PHP microservices.
+
+<CardGrid>
+  <LinkCard title="Quick Start" href="/quickstart" description="Install Winter Boot, create your first service and REST controller, and have a running Swoole HTTP server in minutes." />
+  <LinkCard title="Core Concepts" href="/core/dependency-injection" description="Understand the application context, bean lifecycle, dependency injection, and AOP weaving that power every Winter Boot service." />
+  <LinkCard title="Web & REST" href="/web/rest-controllers" description="Map HTTP routes with <code>#[RestController]</code>, handle path variables and request bodies, and return typed <code>ResponseEntity</code> objects." />
+  <LinkCard title="Data Access" href="/data/database" description="Connect datasources, run schema migrations, and manage transactions declaratively with <code>#[Transactional]</code>." />
+  <LinkCard title="Async & Scheduling" href="/async/async-tasks" description="Offload work with <code>#[Async]</code> coroutines and schedule recurring jobs with cron-style <code>#[Scheduled]</code> tasks." />
+  <LinkCard title="Operations" href="/ops/caching" description="Add caching, distributed locking, structured logging, Prometheus metrics, and OpenTelemetry tracing to your services." />
+</CardGrid>
+
+## Get Up and Running in Four Steps
+
+Follow these steps to go from a blank directory to a live HTTP service.
+
+<Steps>
+
+1. **Install Winter Boot via Composer**
+
+   Create a new project directory, initialise Composer, and require the core framework package. Install the Swoole extension for the built-in async HTTP server.
+
+   ```bash
+   mkdir my-service && cd my-service
+   composer init --no-interaction
+   composer require suvera/winter-boot
+   pecl install swoole
+   ```
+
+
+1. **Configure application.yml**
+
+   Create a `config/` directory and add `application.yml`. At minimum, set the server port and give your service a name.
+
+   ```yaml title="config/application.yml"
+   server:
+       port: 8080
+       address: 127.0.0.1
+
+   winter:
+       application:
+           name: My Service
+           id: my-service
+           version: 1.0.0-DEV
+   ```
+
+
+1. **Write Your First Service and Controller**
+
+   Annotate a plain PHP class with `#[Service]` to register it as a managed bean, then expose it over HTTP with a `#[RestController]`.
+
+   ```php title="src/HelloService.php"
+   <?php
+
+   declare(strict_types=1);
+
+   namespace com\example\myapp;
+
+   use dev\winterframework\stereotype\Service;
+
+   #[Service]
+   class HelloService
+   {
+       public function sayHello(string $name): string
+       {
+           return "Hello, {$name}! Welcome to Winter Boot.";
+       }
+   }
+   ```
+
+   ```php title="src/HelloController.php"
+   <?php
+
+   declare(strict_types=1);
+
+   namespace com\example\myapp;
+
+   use dev\winterframework\stereotype\Autowired;
+   use dev\winterframework\stereotype\RestController;
+   use dev\winterframework\stereotype\web\GetMapping;
+   use dev\winterframework\stereotype\web\RequestParam;
+   use dev\winterframework\web\http\ResponseEntity;
+
+   #[RestController]
+   class HelloController
+   {
+       #[Autowired]
+       private HelloService $helloService;
+
+       #[GetMapping(path: '/api/hello')]
+       public function hello(#[RequestParam] string $name = 'World'): ResponseEntity
+       {
+           return ResponseEntity::ok()->withJson([
+               'message' => $this->helloService->sayHello($name),
+           ]);
+       }
+   }
+   ```
+
+
+1. **Run the Application**
+
+   Create the entry-point class with `#[WinterBootApplication]`, then start the server. Swoole forks worker processes and begins accepting connections on your configured port.
+
+   ```php title="Application.php"
+   <?php
+
+   declare(strict_types=1);
+
+   use dev\winterframework\stereotype\WinterBootApplication;
+   use dev\winterframework\core\app\WinterWebSwooleApplication;
+
+   require_once __DIR__ . '/vendor/autoload.php';
+
+   #[WinterBootApplication(
+       configDirectory: [__DIR__ . '/config'],
+       scanNamespaces: [['com\\example\\myapp', __DIR__ . '/src']]
+   )]
+   class Application
+   {
+       public static function main(): void
+       {
+           (new WinterWebSwooleApplication())->run(Application::class);
+       }
+   }
+
+   Application::main();
+   ```
+
+   ```bash
+   php Application.php
+   # Http server started on 127.0.0.1:8080, pid:12345, master_pid:12344
+   ```
+
+   Test your endpoint:
+
+   ```bash
+   curl "http://127.0.0.1:8080/api/hello?name=Alice"
+   # {"message":"Hello, Alice! Welcome to Winter Boot."}
+   ```
+
+
+</Steps>

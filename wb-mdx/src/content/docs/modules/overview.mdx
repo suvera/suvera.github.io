@@ -1,0 +1,129 @@
+---
+title: "Winter Libraries: Ecosystem Overview and Selection Guide"
+sidebar:
+  label: "Overview"
+description: "Browse every official Winter library, understand how each one plugs into Winter Boot, and pick the right package for your data, messaging, storage, or discovery needs."
+---
+
+import { Aside, CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+The Winter library ecosystem is a set of optional packages that extend the [Winter Boot](/introduction) framework with integrations for databases, message queues, object storage, search, and distributed infrastructure. Every library implements the framework's [module system](/core/module-system) contract and registers beans automatically, so once you enable a module in `application.yml` you can `#[Autowired]` its templates and clients anywhere in your code.
+
+## Choose a library
+
+Match your use case to a library and package.
+
+| Need | Use | Package |
+| --- | --- | --- |
+| Relational database with ORM entities | [Doctrine](/modules/doctrine) | `suvera/winter-doctrine` |
+| Redis client for cache or key/value work | [Redis](/modules/data-redis) | `suvera/winter-modules` |
+| Memcached client for lightweight caching | [Memcache](/modules/data-memcache) | `suvera/winter-modules` |
+| Embedded in-memory DB launched with the app (Redis, Ignite, Memcached, Hazelcast) | [Memdb](/modules/memdb) | `suvera/winter-memdb` |
+| Event streaming and pub/sub | [Kafka](/modules/kafka) | `suvera/winter-modules` |
+| Managed AWS message queue | [SQS](/modules/sqs) | `suvera/winter-modules` |
+| S3-compatible object storage | [S3](/modules/s3) | `suvera/winter-modules` |
+| Full-text search and analytics | [OpenSearch](/modules/opensearch) | `suvera/winter-modules` |
+| Background task orchestration across nodes | [DTCE](/modules/dtce) | `suvera/winter-modules` |
+| Service discovery (Consul or Netflix Eureka) | [Eureka](/modules/eureka) | `suvera/winter-eureka` |
+| Application security policies | [Security](/modules/security) (planned) | `suvera/winter-modules` |
+
+## Grouped by domain
+
+### Data
+
+Client libraries that connect to external data stores.
+
+<CardGrid>
+  <LinkCard title="Doctrine ORM & DBAL" href="/modules/doctrine" description="Doctrine entities, DBAL connections, and multi-tenant datasource routing." />
+
+  <LinkCard title="Redis Client" href="/modules/data-redis" description="PhpRedis templates for singles, clusters, arrays, sentinels, and Dynomite token rings." />
+
+  <LinkCard title="Memcached Client" href="/modules/data-memcache" description="Memcached and Memcache extension clients for lightweight remote caching." />
+</CardGrid>
+
+### Messaging
+
+<CardGrid>
+  <LinkCard title="Apache Kafka" href="/modules/kafka" description="Producer and consumer integration for event streaming pipelines." />
+
+  <LinkCard title="Amazon SQS" href="/modules/sqs" description="SQS producer and consumer with IAM role and EKS IRSA support." />
+</CardGrid>
+
+### Storage & search
+
+<CardGrid>
+  <LinkCard title="Amazon S3" href="/modules/s3" description="Upload, download, and manage S3-compatible object storage from any bean." />
+
+  <LinkCard title="OpenSearch" href="/modules/opensearch" description="OpenSearch indexing and querying with basic auth or AWS SigV4 signing." />
+</CardGrid>
+
+### Distributed systems
+
+<CardGrid>
+  <LinkCard title="Service Discovery" href="/modules/eureka" description="Register and discover services via Consul or Netflix Eureka." />
+
+  <LinkCard title="Distributed Tasks (DTCE)" href="/modules/dtce" description="Cross-node background task orchestration with pluggable queue and store backends." />
+</CardGrid>
+
+### Embedded in-memory servers *EXPERIMENTAL*
+
+Libraries where the framework launches and manages the server process as part of the app lifecycle.
+
+<CardGrid>
+  <LinkCard title="Winter Memdb" href="/modules/memdb" description="Auto-start Redis, Apache Ignite, Memcached, or Hazelcast alongside the application." />
+</CardGrid>
+
+### Planned
+
+<CardGrid>
+  <LinkCard title="Security" href="/modules/security" description="Reserved for the upcoming security module. Not yet released; see the page for interim guidance." />
+</CardGrid>
+
+## Installation patterns
+
+Winter libraries are distributed as three separate composer packages so you install only what you need:
+
+```bash title="Install patterns"
+# Framework only
+composer require suvera/winter-boot
+
+# Framework plus one standalone library
+composer require suvera/winter-boot suvera/winter-doctrine
+
+# Framework plus the 8-module monorepo
+composer require suvera/winter-boot suvera/winter-modules
+```
+
+<Aside type="note">
+  The library composer files do not currently declare `suvera/winter-boot` as a dependency, so you must install it explicitly. Every library uses framework classes at runtime.
+</Aside>
+
+## PHP extension matrix
+
+Some libraries require additional PHP extensions. Install them before enabling the module.
+
+| Library | Required extensions | Optional |
+| --- | --- | --- |
+| Doctrine | one of `pdo_sqlite`, `pdo_mysql`, `pdo_pgsql`, `pdo_sqlsrv`, `pdo_oci` |  |
+| Redis | `redis` (phpredis) |  |
+| Memcache | `memcached` or `memcache` |  |
+| Memdb | `swoole`, `posix`; plus the engine's own binary on `PATH` | `redis`, `memcached` |
+| Kafka | `swoole`, `rdkafka` |  |
+| SQS | `swoole` |  |
+| S3 | none (uses `aws/aws-sdk-php`) |  |
+| OpenSearch | none (uses `opensearch-project/opensearch-php`) |  |
+| DTCE | `swoole`; plus `redis` or `rdkafka` depending on backend |  |
+| Eureka | `swoole` |  |
+
+## Enabling a library
+
+Every library plugs in through the same [module system](/core/module-system). Declare the module class in your `application.yml` under `modules:`:
+
+```yaml title="application.yml"
+modules:
+    - module: 'dev\winterframework\kafka\KafkaModule'
+      enabled: true
+      configFile: 'config/kafka-config.yml'
+```
+
+Read [The Module System](/core/module-system) for the full contract, load order, and how to build your own modules.

@@ -1,0 +1,51 @@
+---
+title: "Examples built with Winter Boot and Winter Modules"
+sidebar:
+  label: "Overview"
+description: "Browse end-to-end example apps built with Winter Boot and Winter Modules."
+---
+
+import { Aside, CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+These examples are complete, runnable apps built with Winter Boot plus Winter Modules. Each one shows configuration, application code, and how to run and verify the result locally.
+
+## Available examples
+
+<CardGrid>
+  <LinkCard title="Redis" href="/examples/redis-app" description="Store strings, counters, hashes, lists, and sets with Winter Redis and PhpRedisTemplate." />
+
+  <LinkCard title="SQS consumer" href="/examples/sqs-consumer" description="Consume messages from an SQS queue with Winter SQS and write them to a file, using ElasticMQ locally." />
+
+  <LinkCard title="Kafka consumer" href="/examples/kafka-app" description="Consume messages from a Kafka topic with Winter Kafka and write them to a file, using a local broker." />
+
+  <LinkCard title="S3" href="/examples/s3-app" description="Upload, download, list, and delete objects with Winter S3, tested locally with MinIO." />
+
+  <LinkCard title="OpenSearch" href="/examples/opensearch-app" description="Index, search, update, and delete documents with Winter OpenSearch." />
+
+  <LinkCard title="Doctrine" href="/examples/doctrine-app" description="Manage users through Doctrine ORM entities with programmatic transactions." />
+
+  <LinkCard title="Daemon threads" href="/examples/daemon-app" description="Watch an inbox directory with a supervised background daemon process." />
+
+  <LinkCard title="Scheduler" href="/examples/scheduler-app" description="Run hourly cleanup and daily summary jobs on fixed cadences." />
+
+  <LinkCard title="DTCE tasks" href="/examples/dtce-app" description="Price order invoices in distributed background workers with Winter DTCE." />
+
+  <LinkCard title="AOP Example" href="/examples/aop-app" description="Protect a REST endpoint with a custom AOP attribute that checks a request header." />
+</CardGrid>
+
+## How examples are structured
+
+Each example follows the same layout so you can move from one to the next quickly:
+
+- What you build and which modules it uses
+- Prerequisites such as PHP extensions and backing services
+- Project structure with every file you need
+- Configuration (`application.yml` plus the module config file)
+- Application and worker code
+- Steps to run the app and verify the outcome
+
+Start with the [SQS consumer](/examples/sqs-consumer).
+
+<Aside type="tip">
+  For module API details behind the examples, see [Libraries overview](/modules/overview) and the [Redis](/modules/data-redis), [Doctrine](/modules/doctrine), [SQS](/modules/sqs), [Kafka](/modules/kafka), [S3](/modules/s3), [OpenSearch](/modules/opensearch), and [DTCE](/modules/dtce) modules. Daemon threads and scheduling are core framework features — see [Daemon Threads](/async/daemon-threads) and [Scheduling](/async/scheduling).
+</Aside>

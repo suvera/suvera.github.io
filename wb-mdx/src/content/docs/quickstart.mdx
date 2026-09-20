@@ -1,0 +1,226 @@
+---
+title: "Quickstart: Build Your First Winter Boot Microservice"
+sidebar:
+  label: "Quickstart"
+description: "Install Winter Boot via Composer, create a service and REST controller, and run a Swoole HTTP server. Zero to a live endpoint in under ten minutes."
+---
+
+import { Aside, CardGrid, LinkCard, Steps } from '@astrojs/starlight/components';
+
+This guide walks you through building a minimal but complete Winter Boot microservice from scratch. By the end you will have a running HTTP server, a managed service bean, and a REST endpoint you can hit with `curl`. All you need is PHP 8.4+, Composer, and the Swoole extension.
+
+<Aside type="note">
+  A fully-featured reference implementation is available at [github.com/suvera/winter-example-service](https://github.com/suvera/winter-example-service). Clone it to see a real-world project layout with Docker, Phar builds, datasource configuration, and more.
+</Aside>
+
+<Steps>
+
+1. **Install PHP and Swoole**
+
+   Ensure PHP 8.4 or later is installed, then install the Swoole extension for the built-in async HTTP server:
+
+   ```bash
+   pecl install swoole
+   ```
+
+   Confirm both are available:
+
+   ```bash
+   php -v
+   php -r "echo phpversion('swoole');"
+   ```
+
+
+1. **Require the Composer Packages**
+
+   Create a new directory for your project and initialise it with Composer, then pull in the core framework package. The optional `winter-modules` package adds community integrations (Redis, Kafka, Doctrine ORM, and more).
+
+   ```bash
+   mkdir my-service && cd my-service
+   composer init --no-interaction
+   composer require suvera/winter-boot
+   composer require suvera/winter-modules   # optional
+   ```
+
+
+1. **Create the Directory Structure**
+
+   Winter Boot expects a `config/` directory for `application.yml` and a `src/` directory for your PHP classes. A minimal layout looks like this:
+
+   ```text
+   my-service/
+   ├── composer.json
+   ├── config/
+   │   └── application.yml
+   ├── src/
+   │   ├── GreetingService.php
+   │   └── GreetingController.php
+   └── Application.php
+   ```
+
+
+1. **Write application.yml**
+
+   Create `config/application.yml`. At minimum you need a server port. The `winter.application` block gives your service a human-readable name and version that surface in health and metrics endpoints.
+
+   ```yaml title="config/application.yml"
+   server:
+       port: 8080
+       address: 127.0.0.1
+
+   winter:
+       application:
+           name: My Greeting Service
+           id: greeting-service
+           version: 1.0.0-DEV
+   ```
+
+
+1. **Create a Service Bean**
+
+   Annotate a class with `#[Service]` to register it as a managed bean. Winter Boot will instantiate it, inject its dependencies, and make it available for `#[Autowired]` injection throughout the application context.
+
+   ```php title="src/GreetingService.php"
+   <?php
+
+   declare(strict_types=1);
+
+   namespace com\example\myapp;
+
+   use dev\winterframework\stereotype\Service;
+
+   #[Service]
+   class GreetingService
+   {
+       public function greet(string $name): string
+       {
+           return sprintf('Hello, %s! Welcome to Winter Boot.', $name);
+       }
+   }
+   ```
+
+
+1. **Create a REST Controller**
+
+   Annotate a class with `#[RestController]` and map an HTTP route with `#[GetMapping]`. Inject the service bean via `#[Autowired]`. Return a `ResponseEntity` to control the HTTP status code and response body.
+
+   ```php title="src/GreetingController.php"
+   <?php
+
+   declare(strict_types=1);
+
+   namespace com\example\myapp;
+
+   use dev\winterframework\stereotype\Autowired;
+   use dev\winterframework\stereotype\RestController;
+   use dev\winterframework\stereotype\web\GetMapping;
+   use dev\winterframework\stereotype\web\RequestParam;
+   use dev\winterframework\web\http\ResponseEntity;
+
+   #[RestController]
+   class GreetingController
+   {
+       #[Autowired]
+       private GreetingService $greetingService;
+
+       #[GetMapping(path: '/api/v1/greet')]
+       public function greet(
+           #[RequestParam] string $name = 'World'
+       ): ResponseEntity {
+           $message = $this->greetingService->greet($name);
+
+           return ResponseEntity::ok()->withJson(['message' => $message]);
+       }
+   }
+   ```
+
+
+1. **Create the Application Entry Point**
+
+   The entry-point class carries the `#[WinterBootApplication]` attribute, which tells the framework where to find your configuration and which namespaces to scan for beans.
+
+   - `configDirectory` — directories containing `application.yml` and any other config files.
+   - `scanNamespaces` — pairs of `[NamespacePrefix, BaseDirectory]` the scanner should inspect.
+
+   ```php title="Application.php"
+   <?php
+
+   declare(strict_types=1);
+
+   use dev\winterframework\stereotype\WinterBootApplication;
+   use dev\winterframework\core\app\WinterWebSwooleApplication;
+
+   require_once __DIR__ . '/vendor/autoload.php';
+
+   #[WinterBootApplication(
+       configDirectory: [__DIR__ . '/config'],
+       scanNamespaces: [
+           ['com\\example\\myapp', __DIR__ . '/src']
+       ]
+   )]
+   class Application
+   {
+       public static function main(): void
+       {
+           (new WinterWebSwooleApplication())->run(Application::class);
+       }
+   }
+
+   Application::main();
+   ```
+
+
+1. **Run the Application**
+
+   Start the server by executing the entry point with PHP. Swoole will fork worker processes and begin accepting HTTP connections on the port defined in `application.yml`.
+
+   ```bash
+   php Application.php
+   ```
+
+   You should see output similar to:
+
+   ```text
+   Http server started on 127.0.0.1:8080, pid:12345, master_pid:12344
+   ```
+
+
+1. **Test with curl**
+
+   In a separate terminal, send a request to the greeting endpoint:
+
+   ```bash
+   curl "http://127.0.0.1:8080/api/v1/greet?name=Alice"
+   ```
+
+   Expected response:
+
+   ```json
+   {"message": "Hello, Alice! Welcome to Winter Boot."}
+   ```
+
+   Test the default parameter:
+
+   ```bash
+   curl "http://127.0.0.1:8080/api/v1/greet"
+   ```
+
+   ```json
+   {"message": "Hello, World! Welcome to Winter Boot."}
+   ```
+
+
+</Steps>
+
+## What's Next?
+
+Now that your service is running, explore these topics to build on the foundation:
+
+<CardGrid>
+  <LinkCard title="Configuration" href="/configuration" description="Externalise settings with <code>application.yml</code>, <code>#[Value]</code>, and additional property sources." />
+  <LinkCard title="Dependency Injection" href="/core/dependency-injection" description="Learn about bean scopes, qualifiers, and <code>#[PostConstruct]</code> lifecycle hooks." />
+  <LinkCard title="REST Controllers" href="/web/rest-controllers" description="Handle path variables, request bodies, and return custom status codes." />
+  <LinkCard title="Databases & Transactions" href="/data/database" description="Connect a datasource and manage transactions with <code>#[Transactional]</code>." />
+  <LinkCard title="Async & Scheduling" href="/async/async-tasks" description="Run background jobs with <code>#[Async]</code> and <code>#[Scheduled]</code>." />
+  <LinkCard title="Module System" href="/core/module-system" description="Add Redis, Kafka, Doctrine ORM, and other integrations via community modules." />
+</CardGrid>
