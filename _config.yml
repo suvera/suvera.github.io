@@ -1,0 +1,3 @@
+exclude:
+  - wb-mdx/
+  - .idea/
