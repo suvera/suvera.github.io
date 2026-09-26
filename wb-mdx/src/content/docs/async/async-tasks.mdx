@@ -10,7 +10,7 @@ import { Aside, Steps } from '@astrojs/starlight/components';
 Winter Boot's asynchronous execution model lets you fire off any service or component method as a background task — the calling code returns immediately while a dedicated pool of Swoole worker processes handles the actual work. This non-blocking design keeps web request latency low even when individual operations are expensive, because heavy lifting happens outside the request/response cycle entirely. Under the hood, arguments are serialised into an in-memory (or Redis-backed) queue and consumed by background workers, so the concurrency model is process-based rather than thread-based.
 
 <Aside type="tip">
-  For distributed task processing across multiple nodes with persistent queues, see the [DTCE module](/modules/dtce). For event-driven consumers backed by Kafka or SQS, see [Kafka](/modules/kafka) and [SQS](/modules/sqs).
+  For distributed task processing across multiple nodes with persistent queues, see the [DTCE module](/winter-boot/modules/dtce). For event-driven consumers backed by Kafka or SQS, see [Kafka](/winter-boot/modules/kafka) and [SQS](/winter-boot/modules/sqs).
 </Aside>
 
 ## Prerequisites

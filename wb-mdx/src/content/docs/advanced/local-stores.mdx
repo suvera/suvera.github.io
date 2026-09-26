@@ -10,7 +10,7 @@ import { Aside } from '@astrojs/starlight/components';
 Winter Boot ships two lightweight in-process stores — a Key-Value store and a Queue store — that run as child processes alongside your Swoole workers. Every worker process on the same host connects to these stores over a local TCP socket, giving them a shared memory space with zero external infrastructure. The stores are intentionally node-local: they are fast because no network round-trip leaves the machine, but they do not replicate across hosts. For distributed, multi-node state use the `winter-data-redis` module instead.
 
 <Aside type="note">
-  Both stores are **node-local**. All Swoole worker processes on the same host share the same store instance, but two separate hosts each run their own independent stores. If you need cross-node shared state, see the [Redis library](/modules/data-redis).
+  Both stores are **node-local**. All Swoole worker processes on the same host share the same store instance, but two separate hosts each run their own independent stores. If you need cross-node shared state, see the [Redis library](/winter-boot/modules/data-redis).
 </Aside>
 
 ---

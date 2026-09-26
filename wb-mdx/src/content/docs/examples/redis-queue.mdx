@@ -258,7 +258,7 @@ Switch between the two config files. `application.yml` enables the module, and `
             configFile: redis-config.yml
     ```
 
-    See [Configuration](/configuration) for every `application.yml` key.
+    See [Configuration](/winter-boot/configuration) for every `application.yml` key.
   </TabItem>
 
   <TabItem label="redis-config.yml">
@@ -313,7 +313,7 @@ Switch between the two config files. `application.yml` enables the module, and `
                 transientExceptions: [ RuntimeException ]
     ```
 
-    See the [Redis module](/modules/data-redis) for the connection properties.
+    See the [Redis module](/winter-boot/modules/data-redis) for the connection properties.
   </TabItem>
 </Tabs>
 
@@ -376,6 +376,6 @@ The runnable sample ships a `test-app.sh` that automates all of the above: happy
 
 ## Next steps
 
-- Read the [Redis module](/modules/data-redis) for the connection templates (`PhpRedisTemplate`, cluster, sentinel) behind the queue consumers.
-- Compare with the [SQS consumer](/examples/sqs-consumer) and [Kafka consumer](/examples/kafka-app): same auto-start worker shape, different delivery guarantees.
-- Browse all [Libraries](/modules/overview) when you need S3, OpenSearch, or Doctrine in the same app.
+- Read the [Redis module](/winter-boot/modules/data-redis) for the connection templates (`PhpRedisTemplate`, cluster, sentinel) behind the queue consumers.
+- Compare with the [SQS consumer](/winter-boot/examples/sqs-consumer) and [Kafka consumer](/winter-boot/examples/kafka-app): same auto-start worker shape, different delivery guarantees.
+- Browse all [Libraries](/winter-boot/modules/overview) when you need S3, OpenSearch, or Doctrine in the same app.

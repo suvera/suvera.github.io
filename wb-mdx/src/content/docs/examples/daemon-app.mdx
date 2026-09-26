@@ -9,7 +9,7 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 Build an app with a supervised background daemon that watches an inbox directory and processes new files as they arrive. You use the `#[DaemonThread]` annotation on a `ServerWorkerProcess` subclass. The framework starts the daemon with your app and restarts it if it crashes, so you never wire up your own process supervisor.
 
-Use a daemon for work that must always be running — watching a directory, polling a queue, or tailing a stream. Use [scheduled tasks](/examples/scheduler-app) instead when the work runs on a fixed cadence.
+Use a daemon for work that must always be running — watching a directory, polling a queue, or tailing a stream. Use [scheduled tasks](/winter-boot/examples/scheduler-app) instead when the work runs on a fixed cadence.
 
 ## Prerequisites
 
@@ -187,7 +187,7 @@ winter:
         version: 1.0.0
 ```
 
-See [Configuration](/configuration) for every `application.yml` key.
+See [Configuration](/winter-boot/configuration) for every `application.yml` key.
 
 ## Run the app
 
@@ -223,5 +223,5 @@ Moved report.txt to processed
 
 ## Next steps
 
-- Read [Daemon Threads](/async/daemon-threads) for process types, `coreSize` scaling, and supervision details.
-- Read the [Scheduler example](/examples/scheduler-app) when your work runs on a fixed cadence instead of continuously.
+- Read [Daemon Threads](/winter-boot/async/daemon-threads) for process types, `coreSize` scaling, and supervision details.
+- Read the [Scheduler example](/winter-boot/examples/scheduler-app) when your work runs on a fixed cadence instead of continuously.

@@ -7,7 +7,7 @@ description: "Protect a REST endpoint with a custom AOP attribute that checks a 
 
 import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
 
-Build an app that guards a REST endpoint with a custom AOP attribute. You annotate the endpoint method with `#[RequireCustomHeader]` and the framework runs your interceptor before the method body: requests carrying `X-Custom-Foo-Bar: foo-bar` go through, everything else is denied with `403` without the method executing. This example applies the concepts from the main [AOP documentation](/core/aop) — attributes, interceptors, and the advice lifecycle — to a complete runnable app.
+Build an app that guards a REST endpoint with a custom AOP attribute. You annotate the endpoint method with `#[RequireCustomHeader]` and the framework runs your interceptor before the method body: requests carrying `X-Custom-Foo-Bar: foo-bar` go through, everything else is denied with `403` without the method executing. This example applies the concepts from the main [AOP documentation](/winter-boot/core/aop) — attributes, interceptors, and the advice lifecycle — to a complete runnable app.
 
 <Aside type="caution">
   Your attribute class must carry `#[StereoTyped]` (next to `#[Attribute]`). Without it the scanner never registers the attribute and your advice is silently ignored — the endpoint just runs unguarded.
@@ -283,7 +283,7 @@ winter:
         version: 1.0.0
 ```
 
-See [Configuration](/configuration) for every `application.yml` key.
+See [Configuration](/winter-boot/configuration) for every `application.yml` key.
 
 ## Run the app
 
@@ -328,5 +328,5 @@ HTTP/1.1 200 OK
 
 ## Next steps
 
-- Read [AOP](/core/aop) for the advice lifecycle (`begin`/`commit`/`failed`), `stopExecution`, and execution variables.
+- Read [AOP](/winter-boot/core/aop) for the advice lifecycle (`begin`/`commit`/`failed`), `stopExecution`, and execution variables.
 - Put reusable advice on `#[Service]` beans the same way — bean-to-bean calls run through proxies, so the same attribute works there unchanged.

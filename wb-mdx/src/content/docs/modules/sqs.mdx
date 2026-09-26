@@ -7,7 +7,7 @@ description: "Winter SQS adds AWS SQS send and receive capabilities to Winter Bo
 
 import { Aside } from '@astrojs/starlight/components';
 
-Winter SQS is an AWS SQS module for Winter Boot that provides both producer (send) and consumer (receive / process) capabilities. If you already use the [Kafka](/modules/kafka) or [S3](/modules/s3) modules, the configuration patterns here, like named connections and workers, will feel familiar.
+Winter SQS is an AWS SQS module for Winter Boot that provides both producer (send) and consumer (receive / process) capabilities. If you already use the [Kafka](/winter-boot/modules/kafka) or [S3](/winter-boot/modules/s3) modules, the configuration patterns here, like named connections and workers, will feel familiar.
 
 ## Setup
 
@@ -240,5 +240,5 @@ class MySqsWorker extends AbstractConsumer {
 ```
 
 <Aside type="tip">
-  For self-hosted event streaming, see the [Kafka](/modules/kafka) module.
+  For self-hosted event streaming, see the [Kafka](/winter-boot/modules/kafka) module.
 </Aside>

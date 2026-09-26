@@ -184,7 +184,7 @@ Switch between the two config files. `application.yml` enables the module, and `
             configFile: sqs-config.yml
     ```
 
-    See [Configuration](/configuration) for every `application.yml` key.
+    See [Configuration](/winter-boot/configuration) for every `application.yml` key.
   </TabItem>
 
   <TabItem label="sqs-config.yml">
@@ -223,7 +223,7 @@ Switch between the two config files. `application.yml` enables the module, and `
                 transientExceptions: []
     ```
 
-    The `__default__` entries supply shared defaults. The named consumer overrides the queue, connection, worker count, and worker class. See the [SQS module](/modules/sqs) for every connection and consumer property.
+    The `__default__` entries supply shared defaults. The named consumer overrides the queue, connection, worker count, and worker class. See the [SQS module](/winter-boot/modules/sqs) for every connection and consumer property.
   </TabItem>
 </Tabs>
 
@@ -271,5 +271,5 @@ You see one line per consumed message, for example:
 
 ## Next steps
 
-- Read the [SQS module](/modules/sqs) for producer APIs (`SqsService`), IAM-role setup, and consumer tuning (`waitTimeSeconds`, `maxNumberOfMessages`, `visibilityTimeout`).
-- Browse all [Libraries](/modules/overview) when you need Kafka, S3, Redis, or Doctrine in the same app.
+- Read the [SQS module](/winter-boot/modules/sqs) for producer APIs (`SqsService`), IAM-role setup, and consumer tuning (`waitTimeSeconds`, `maxNumberOfMessages`, `visibilityTimeout`).
+- Browse all [Libraries](/winter-boot/modules/overview) when you need Kafka, S3, Redis, or Doctrine in the same app.

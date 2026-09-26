@@ -7,10 +7,10 @@ description: "Apply versioned OpenSearch index templates, ISM policies, and inde
 
 import { Aside, Steps } from '@astrojs/starlight/components';
 
-Winter Boot's OpenSearch migration runner applies JSON-based index templates, ISM policies, and index schemas against configured OpenSearch connections. It tracks execution the same way [SQL migrations](/data/migrations) do, so you can version-control your search cluster schema alongside your database schema.
+Winter Boot's OpenSearch migration runner applies JSON-based index templates, ISM policies, and index schemas against configured OpenSearch connections. It tracks execution the same way [SQL migrations](/winter-boot/data/migrations) do, so you can version-control your search cluster schema alongside your database schema.
 
 <Aside type="tip">
-  The migration runner is part of the framework and does not require the [OpenSearch library](/modules/opensearch) to be enabled at runtime. It reads OpenSearch connection details directly from `application.yml` or from a module config file such as `opensearch-config.yml`.
+  The migration runner is part of the framework and does not require the [OpenSearch library](/winter-boot/modules/opensearch) to be enabled at runtime. It reads OpenSearch connection details directly from `application.yml` or from a module config file such as `opensearch-config.yml`.
 </Aside>
 
 ## Quick start

@@ -9,14 +9,14 @@ import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
 
 Build an app that runs recurring maintenance jobs on fixed cadences. You put `#[Scheduled]` on zero-argument methods of a `#[Service]` bean and enable scheduling on the application class. The framework runs each tick in a dedicated worker process, so a slow job never blocks web requests.
 
-Use scheduled tasks for work that runs on a fixed cadence — cleanup, reports, cache warming. Use a [daemon thread](/examples/daemon-app) instead when the work must run continuously.
+Use scheduled tasks for work that runs on a fixed cadence — cleanup, reports, cache warming. Use a [daemon thread](/winter-boot/examples/daemon-app) instead when the work must run continuously.
 
 <Aside type="caution">
   Scheduling fires once per process. Run exactly one instance of this app — a second instance would run every tick twice.
 </Aside>
 
 <Aside type="note">
-  If you must scale this app to multiple instances, guard each tick with a distributed lock so only one instance runs it. See [Locking](/ops/locking) for the `#[Lockable]` annotation and supported lock managers.
+  If you must scale this app to multiple instances, guard each tick with a distributed lock so only one instance runs it. See [Locking](/winter-boot/ops/locking) for the `#[Lockable]` annotation and supported lock managers.
 </Aside>
 
 ## Prerequisites
@@ -197,7 +197,7 @@ winter:
             queueCapacity: 50
 ```
 
-See [Configuration](/configuration) for every `application.yml` key.
+See [Configuration](/winter-boot/configuration) for every `application.yml` key.
 
 ## Run the app
 
@@ -239,5 +239,5 @@ The short initial delays let you verify both ticks without waiting an hour or a 
 
 ## Next steps
 
-- Read [Scheduling](/async/scheduling) for `fixedRate`, placeholder-driven intervals, and pool tuning.
-- Read the [Daemon example](/examples/daemon-app) when your work must run continuously instead of on a cadence.
+- Read [Scheduling](/winter-boot/async/scheduling) for `fixedRate`, placeholder-driven intervals, and pool tuning.
+- Read the [Daemon example](/winter-boot/examples/daemon-app) when your work must run continuously instead of on a cadence.

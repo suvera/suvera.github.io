@@ -315,7 +315,7 @@ Switch between the two config files. `application.yml` enables the module and se
             configFile: dtce-config.yml
     ```
 
-    See [Configuration](/configuration) for every `application.yml` key.
+    See [Configuration](/winter-boot/configuration) for every `application.yml` key.
   </TabItem>
 
   <TabItem label="dtce-config.yml">
@@ -334,7 +334,7 @@ Switch between the two config files. `application.yml` enables the module and se
                 handler: dev\winterframework\dtce\task\storage\TaskQueueShared
     ```
 
-    The disk store and shared queue are local to one machine. For multi-node setups use the Redis, Kafka, or Pdbc handlers instead. See the [DTCE module](/modules/dtce) for every backend and tuning option.
+    The disk store and shared queue are local to one machine. For multi-node setups use the Redis, Kafka, or Pdbc handlers instead. See the [DTCE module](/winter-boot/modules/dtce) for every backend and tuning option.
   </TabItem>
 </Tabs>
 
@@ -393,5 +393,5 @@ You see one line per priced order, for example:
 
 ## Next steps
 
-- Read the [DTCE module](/modules/dtce) for the async APIs (`addTask`, `addJob`, `taskStatus`, `stopTask`), persistent backends, and full configuration.
-- Browse all [Libraries](/modules/overview) when you need Kafka, SQS, Redis, or Doctrine in the same app.
+- Read the [DTCE module](/winter-boot/modules/dtce) for the async APIs (`addTask`, `addJob`, `taskStatus`, `stopTask`), persistent backends, and full configuration.
+- Browse all [Libraries](/winter-boot/modules/overview) when you need Kafka, SQS, Redis, or Doctrine in the same app.

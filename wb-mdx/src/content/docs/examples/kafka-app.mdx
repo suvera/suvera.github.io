@@ -189,7 +189,7 @@ Switch between the two config files. `application.yml` enables the module, and `
             configFile: kafka-config.yml
     ```
 
-    See [Configuration](/configuration) for every `application.yml` key.
+    See [Configuration](/winter-boot/configuration) for every `application.yml` key.
   </TabItem>
 
   <TabItem label="kafka-config.yml">
@@ -208,7 +208,7 @@ Switch between the two config files. `application.yml` enables the module, and `
             workerClass: dev\example\consumer\MessageFileWriterConsumer
     ```
 
-    The `__default__` entry supplies shared defaults. Replace `bootstrap.servers` with your own brokers outside local testing. See the [Kafka module](/modules/kafka) for every consumer property and producer setup.
+    The `__default__` entry supplies shared defaults. Replace `bootstrap.servers` with your own brokers outside local testing. See the [Kafka module](/winter-boot/modules/kafka) for every consumer property and producer setup.
   </TabItem>
 </Tabs>
 
@@ -255,5 +255,5 @@ You see one line per consumed message, for example:
 
 ## Next steps
 
-- Read the [Kafka module](/modules/kafka) for producer APIs (`KafkaService`), consumer tuning, and rdkafka settings.
-- Browse all [Libraries](/modules/overview) when you need SQS, S3, Redis, or Doctrine in the same app.
+- Read the [Kafka module](/winter-boot/modules/kafka) for producer APIs (`KafkaService`), consumer tuning, and rdkafka settings.
+- Browse all [Libraries](/winter-boot/modules/overview) when you need SQS, S3, Redis, or Doctrine in the same app.

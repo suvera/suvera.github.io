@@ -21,7 +21,7 @@ Winter is deliberately modular. You install the framework, then add only the lib
 | `suvera/winter-eureka` | Service discovery via Consul or Netflix Eureka | You run multiple service instances behind discovery |
 | `suvera/winter-memdb` | Embedded in-memory servers (Redis, Ignite, Memcached, Hazelcast) launched by the app *EXPERIMENTAL* | You want the app to manage the cache/database server |
 
-<LinkCard title="See the Libraries tab" href="/modules/overview" description="Full catalog of official libraries, with per-need guidance and links to each integration&#x27;s dedicated page." />
+<LinkCard title="See the Libraries tab" href="/winter-boot/modules/overview" description="Full catalog of official libraries, with per-need guidance and links to each integration&#x27;s dedicated page." />
 
 ## What is Winter Boot?
 
@@ -57,14 +57,14 @@ MyApplication::main();
 Explore what Winter Boot can do for your microservices project.
 
 <CardGrid>
-  <LinkCard title="Quickstart" href="/quickstart" description="Install the package, write your first service and REST controller, and have a running HTTP server in minutes." />
-  <LinkCard title="Dependency Injection" href="/core/dependency-injection" description="Attribute-driven DI with <code>#[Service]</code>, <code>#[Component]</code>, <code>#[Autowired]</code>, <code>#[Qualifier]</code>, and <code>#[Bean]</code> factories." />
-  <LinkCard title="REST Controllers" href="/web/rest-controllers" description="Map HTTP routes with <code>#[RestController]</code>, <code>#[RequestMapping]</code>, <code>#[GetMapping]</code>, <code>#[PostMapping]</code>, and more." />
-  <LinkCard title="AOP & Custom Stereotypes" href="/core/aop" description="Implement cross-cutting concerns with custom attributes and aspect-oriented interceptors." />
-  <LinkCard title="Databases & Transactions" href="/data/database" description="Manage datasources, run SQL migrations, and control transactions declaratively with <code>#[Transactional]</code>." />
-  <LinkCard title="Caching" href="/ops/caching" description="Add response and method-level caching with a single attribute, backed by any cache provider." />
-  <LinkCard title="Async & Scheduling" href="/async/async-tasks" description="Run background work with <code>#[Async]</code> and cron-style scheduling with <code>#[Scheduled]</code>." />
-  <LinkCard title="Module System" href="/core/module-system" description="Extend the framework with community libraries or build your own by implementing <code>WinterModule</code>." />
+  <LinkCard title="Quickstart" href="/winter-boot/quickstart" description="Install the package, write your first service and REST controller, and have a running HTTP server in minutes." />
+  <LinkCard title="Dependency Injection" href="/winter-boot/core/dependency-injection" description="Attribute-driven DI with <code>#[Service]</code>, <code>#[Component]</code>, <code>#[Autowired]</code>, <code>#[Qualifier]</code>, and <code>#[Bean]</code> factories." />
+  <LinkCard title="REST Controllers" href="/winter-boot/web/rest-controllers" description="Map HTTP routes with <code>#[RestController]</code>, <code>#[RequestMapping]</code>, <code>#[GetMapping]</code>, <code>#[PostMapping]</code>, and more." />
+  <LinkCard title="AOP & Custom Stereotypes" href="/winter-boot/core/aop" description="Implement cross-cutting concerns with custom attributes and aspect-oriented interceptors." />
+  <LinkCard title="Databases & Transactions" href="/winter-boot/data/database" description="Manage datasources, run SQL migrations, and control transactions declaratively with <code>#[Transactional]</code>." />
+  <LinkCard title="Caching" href="/winter-boot/ops/caching" description="Add response and method-level caching with a single attribute, backed by any cache provider." />
+  <LinkCard title="Async & Scheduling" href="/winter-boot/async/async-tasks" description="Run background work with <code>#[Async]</code> and cron-style scheduling with <code>#[Scheduled]</code>." />
+  <LinkCard title="Module System" href="/winter-boot/core/module-system" description="Extend the framework with community libraries or build your own by implementing <code>WinterModule</code>." />
 </CardGrid>
 
 ## Requirements
@@ -139,9 +139,9 @@ class UserServiceImpl implements UserService
 Cross-cutting concerns such as caching, transactions, retries, and custom interceptors are expressed as attributes applied to methods and classes. The AOP weaving happens at container startup, with no proxy code to write and no separate aspect files to maintain.
 
 <Aside type="tip">
-  See the [AOP & Custom Stereotypes](/core/aop) page for a full walkthrough of defining aspects, join points, and custom stereotype attributes.
+  See the [AOP & Custom Stereotypes](/winter-boot/core/aop) page for a full walkthrough of defining aspects, join points, and custom stereotype attributes.
 </Aside>
 
 ## Microservices focus
 
-Winter Boot is optimised for the microservice deployment model: stateless HTTP workers managed by Swoole, an optional in-process key-value store and task queue, built-in Prometheus metrics via the Actuator, and an extensible module system for integrations with Redis, Kafka, Doctrine ORM, Amazon SQS/S3, OpenSearch, and service-discovery solutions such as Consul and Netflix Eureka. See the [Libraries overview](/modules/overview) for the full catalog and guidance on choosing the right library.
+Winter Boot is optimised for the microservice deployment model: stateless HTTP workers managed by Swoole, an optional in-process key-value store and task queue, built-in Prometheus metrics via the Actuator, and an extensible module system for integrations with Redis, Kafka, Doctrine ORM, Amazon SQS/S3, OpenSearch, and service-discovery solutions such as Consul and Netflix Eureka. See the [Libraries overview](/winter-boot/modules/overview) for the full catalog and guidance on choosing the right library.

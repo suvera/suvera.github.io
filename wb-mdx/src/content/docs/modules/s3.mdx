@@ -7,7 +7,7 @@ description: "Winter S3 adds AWS S3 object storage to Winter Boot. Configure nam
 
 import { Aside } from '@astrojs/starlight/components';
 
-Winter S3 is a module that provides easy configuration and access to S3 object storage (or S3-compatible services) from Winter Boot applications. Each named entry in `s3-config.yml` builds an `Aws\S3\S3Client` and registers an `S3Template` bean, so you can talk to multiple buckets, regions, or accounts from the same service. If you already use the [SQS](/modules/sqs) module, the configuration patterns here, like named connections and IAM-role credentials, will feel familiar.
+Winter S3 is a module that provides easy configuration and access to S3 object storage (or S3-compatible services) from Winter Boot applications. Each named entry in `s3-config.yml` builds an `Aws\S3\S3Client` and registers an `S3Template` bean, so you can talk to multiple buckets, regions, or accounts from the same service. If you already use the [SQS](/winter-boot/modules/sqs) module, the configuration patterns here, like named connections and IAM-role credentials, will feel familiar.
 
 ## Setup
 
@@ -125,5 +125,5 @@ s3:
 For EKS, annotate your Kubernetes ServiceAccount with the role ARN (`eks.amazonaws.com/role-arn: arn:aws:iam::123456789:role/my-s3-role`) and omit the `credentials` block.
 
 <Aside type="tip">
-  For AWS-managed queues alongside object storage, see the [SQS](/modules/sqs) module.
+  For AWS-managed queues alongside object storage, see the [SQS](/winter-boot/modules/sqs) module.
 </Aside>

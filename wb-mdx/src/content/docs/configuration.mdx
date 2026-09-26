@@ -50,25 +50,25 @@ myApp:
 
 ### Reserved Top-Level Keys
 
-- **``** `integer` (default: `8080`)
+- **`server.port`** `integer` (default: `8080`)
   Port the Swoole HTTP server binds to.
 
-- **``** `string` (default: `127.0.0.1`)
+- **`server.address`** `string` (default: `127.0.0.1`)
   Network interface the server listens on. Use `0.0.0.0` to bind all interfaces.
 
-- **``** `string` (default: `/`)
+- **`server.context-path`** `string` (default: `/`)
   URL prefix prepended to all mapped routes.
 
-- **``** `string`
+- **`winter.application.name`** `string`
   Human-readable service name. Exposed by health and metrics endpoints.
 
-- **``** `string`
+- **`winter.application.id`** `string`
   Machine-readable service identifier used in logs and service-discovery registrations.
 
-- **``** `string`
+- **`winter.application.version`** `string`
   Semantic version string for the running service.
 
-- **``** `array`
+- **`winter.application.datasource`** `array`
   List of datasource definitions. Each entry requires at least `name`, `url`, and `driverClass`.
 
 ## #[WinterBootApplication] Attribute Options

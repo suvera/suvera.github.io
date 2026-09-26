@@ -10,7 +10,7 @@ import { Aside, Card, CardGrid, Steps } from '@astrojs/starlight/components';
 Winter Boot's caching abstraction lets you add caching behaviour to any bean method without writing a single line of cache-management code. Under the hood the framework uses **Aspect-Oriented Programming (AOP)**: when it detects a caching attribute on a public method it generates a transparent proxy that intercepts calls to that method and handles cache lookups, storage, and eviction automatically. You choose the caching backend — in-memory, shared local KV store, or distributed Redis — by wiring a `CacheManager` bean, and the attributes remain identical regardless of the backend.
 
 <Aside type="tip">
-  For the cache backends themselves, see the [Redis module](/modules/data-redis) (PhpRedis singles/clusters/arrays/sentinels), the [Memcache module](/modules/data-memcache), or the [Memdb module](/modules/memdb) if you want the framework to launch an embedded cache server.
+  For the cache backends themselves, see the [Redis module](/winter-boot/modules/data-redis) (PhpRedis singles/clusters/arrays/sentinels), the [Memcache module](/winter-boot/modules/data-memcache), or the [Memdb module](/winter-boot/modules/memdb) if you want the framework to launch an embedded cache server.
 </Aside>
 
 ## Enabling Caching

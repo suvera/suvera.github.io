@@ -15,7 +15,7 @@ Winter Boot uses PHP 8 attributes for its entire programming model. This page in
 | `#[Configuration]` | `dev\winterframework\stereotype` | Declares a bean-producing class whose `#[Bean]` methods contribute beans to the container. |
 | `#[PostConstruct]` | `dev\winterframework\stereotype` | Marks a bean method to run after all dependencies are injected. |
 | `#[OnApplicationReady]` | `dev\winterframework\stereotype` | Marks a bean method to run once the application context is fully ready. |
-| `#[Module]` | `dev\winterframework\stereotype` | Registers a class as a Winter module (see [Module System](/core/module-system)). |
+| `#[Module]` | `dev\winterframework\stereotype` | Registers a class as a Winter module (see [Module System](/winter-boot/core/module-system)). |
 
 ## Dependency injection
 
@@ -29,7 +29,7 @@ Winter Boot uses PHP 8 attributes for its entire programming model. This page in
 | `#[Value]` | `dev\winterframework\stereotype` | Injects a property or config value into a field. |
 | `#[JsonProperty]` | `dev\winterframework\stereotype` | Maps a PHP property to a JSON key for (de)serialisation. |
 
-Read [Dependency Injection](/core/dependency-injection) for full usage.
+Read [Dependency Injection](/winter-boot/core/dependency-injection) for full usage.
 
 ## Web and REST
 
@@ -46,7 +46,7 @@ Read [Dependency Injection](/core/dependency-injection) for full usage.
 | `#[RequestParam]` | `dev\winterframework\stereotype\web` | Binds a query-string parameter. |
 | `#[RequestBody]` | `dev\winterframework\stereotype\web` | Binds the deserialised request body. |
 
-See [REST Controllers](/web/rest-controllers) and [Request Mapping](/web/request-mapping).
+See [REST Controllers](/winter-boot/web/rest-controllers) and [Request Mapping](/winter-boot/web/request-mapping).
 
 ## Data, PPA, and transactions
 
@@ -59,7 +59,7 @@ See [REST Controllers](/web/rest-controllers) and [Request Mapping](/web/request
 | `#[EnableTransactionManagement]` | `dev\winterframework\stereotype\txn` | Enables `#[Transactional]` on the application. |
 | `#[Transactional]` | `dev\winterframework\txn\stereotype` | Wraps a method in a database transaction. |
 
-See [Datasources](/data/database), [Transactions](/data/transactions), [SQL Migrations](/data/migrations), and [OpenSearch Migrations](/data/opensearch-migrations).
+See [Datasources](/winter-boot/data/database), [Transactions](/winter-boot/data/transactions), [SQL Migrations](/winter-boot/data/migrations), and [OpenSearch Migrations](/winter-boot/data/opensearch-migrations).
 
 ## Async, scheduling, and concurrency
 
@@ -72,7 +72,7 @@ See [Datasources](/data/database), [Transactions](/data/transactions), [SQL Migr
 | `#[DaemonThread]` | `dev\winterframework\stereotype\cli` | Runs a bean method as a long-lived daemon thread. |
 | `#[Lockable]` | `dev\winterframework\stereotype\concurrent` | Serialises method execution across processes. |
 
-See [Async Tasks](/async/async-tasks), [Scheduled Tasks](/async/scheduling), [Daemon Threads](/async/daemon-threads), and [Locking](/ops/locking).
+See [Async Tasks](/winter-boot/async/async-tasks), [Scheduled Tasks](/winter-boot/async/scheduling), [Daemon Threads](/winter-boot/async/daemon-threads), and [Locking](/winter-boot/ops/locking).
 
 ## Caching
 
@@ -83,7 +83,7 @@ See [Async Tasks](/async/async-tasks), [Scheduled Tasks](/async/scheduling), [Da
 | `#[CachePut]` | `dev\winterframework\cache\stereotype` | Updates the cached entry after a method runs. |
 | `#[CacheEvict]` | `dev\winterframework\cache\stereotype` | Invalidates cached entries. |
 
-See [Caching](/ops/caching).
+See [Caching](/winter-boot/ops/caching).
 
 ## AOP
 
@@ -92,7 +92,7 @@ See [Caching](/ops/caching).
 | `#[AopStereoType]` | `dev\winterframework\stereotype\aop` | Marks a custom attribute as an AOP stereotype. |
 | `#[WinterAspect]` | `dev\winterframework\stereotype\aop` | Marks a class as an aspect implementation. |
 
-See [AOP & Custom Stereotypes](/core/aop).
+See [AOP & Custom Stereotypes](/winter-boot/core/aop).
 
 ## Actuator
 
@@ -101,7 +101,7 @@ See [AOP & Custom Stereotypes](/core/aop).
 | `#[HealthInformer]` | `dev\winterframework\actuator\stereotype` | Contributes a health check to the actuator endpoint. |
 | `#[InfoInformer]` | `dev\winterframework\actuator\stereotype` | Contributes an info payload to the actuator endpoint. |
 
-See [Actuator](/ops/actuator).
+See [Actuator](/winter-boot/ops/actuator).
 
 ## Testing
 
@@ -109,7 +109,7 @@ See [Actuator](/ops/actuator).
 | --- | --- | --- |
 | `#[WinterBootTest]` | `dev\winterframework\stereotype\test` | Registers a test class as a bean during test runs. |
 
-See [Testing](/building/testing).
+See [Testing](/winter-boot/building/testing).
 
 ## Utility
 

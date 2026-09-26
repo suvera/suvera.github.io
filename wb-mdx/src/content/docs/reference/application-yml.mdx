@@ -7,7 +7,7 @@ description: "Complete reference for application.yml: server, winter, datasource
 
 `application.yml` is the central configuration file for a Winter Boot application. It must live in the `config` directory referenced by `#[WinterBootApplication(configDirectory: [...])]`. This page indexes every top-level key the framework and its official libraries recognise, with one-line descriptions and links to the concept page that documents each in full.
 
-For prose walkthroughs of properties, `#[Value]` injection, and additional property sources see [Configuration](/configuration).
+For prose walkthroughs of properties, `#[Value]` injection, and additional property sources see [Configuration](/winter-boot/configuration).
 
 ## Framework top-level keys
 
@@ -22,7 +22,7 @@ server:
     context-path: /
 ```
 
-Documented in [Configuration](/configuration).
+Documented in [Configuration](/winter-boot/configuration).
 
 ### `winter`
 
@@ -65,9 +65,9 @@ datasource:
             autoCommit: true
 ```
 
-Documented in [Datasources & PdbcTemplate](/data/database).
+Documented in [Datasources & PdbcTemplate](/winter-boot/data/database).
 
-An optional `migrations.enabled: true` on a datasource entry opts the connection into [SQL migrations](/data/migrations).
+An optional `migrations.enabled: true` on a datasource entry opts the connection into [SQL migrations](/winter-boot/data/migrations).
 
 ### `modules`
 
@@ -80,19 +80,19 @@ modules:
       configFile: 'config/kafka-config.yml'
 ```
 
-Modules are loaded in order. Documented in [The Module System](/core/module-system).
+Modules are loaded in order. Documented in [The Module System](/winter-boot/core/module-system).
 
 ### `logger`
 
 Monolog-cascade configuration for logging channels, handlers, and formatters.
 
-Documented in [Logging](/ops/logging).
+Documented in [Logging](/winter-boot/ops/logging).
 
 ### `propertySources`
 
 List of additional property sources to load on top of `application.yml`.
 
-Documented in [Configuration](/configuration).
+Documented in [Configuration](/winter-boot/configuration).
 
 ### Custom application keys
 
@@ -104,7 +104,7 @@ Each Winter library reads its own top-level keys. The keys can live directly in 
 
 ### `opensearch`
 
-Used by [OpenSearch](/modules/opensearch) and the framework's [OpenSearch migration runner](/data/opensearch-migrations).
+Used by [OpenSearch](/winter-boot/modules/opensearch) and the framework's [OpenSearch migration runner](/winter-boot/data/opensearch-migrations).
 
 ```yaml
 opensearch:
@@ -120,39 +120,39 @@ opensearch:
 
 ### `kafka`
 
-Used by the [Kafka library](/modules/kafka) for consumer and producer definitions.
+Used by the [Kafka library](/winter-boot/modules/kafka) for consumer and producer definitions.
 
 ### `sqs`
 
-Used by the [SQS library](/modules/sqs) for connection and consumer definitions.
+Used by the [SQS library](/winter-boot/modules/sqs) for connection and consumer definitions.
 
 ### `s3`
 
-Used by the [S3 library](/modules/s3) for connection credentials.
+Used by the [S3 library](/winter-boot/modules/s3) for connection credentials.
 
 ### `doctrine`
 
-Used by the [Doctrine library](/modules/doctrine) for ORM/DBAL datasources and multi-tenant configuration.
+Used by the [Doctrine library](/winter-boot/modules/doctrine) for ORM/DBAL datasources and multi-tenant configuration.
 
 ### `memdb`
 
-Used by the [Memdb library](/modules/memdb) for embedded server engine selection.
+Used by the [Memdb library](/winter-boot/modules/memdb) for embedded server engine selection.
 
 ### `dtce`
 
-Used by the [DTCE library](/modules/dtce) for queue, store, and worker configuration.
+Used by the [DTCE library](/winter-boot/modules/dtce) for queue, store, and worker configuration.
 
 ### `eureka`, `consul`
 
-Used by the [Service Discovery library](/modules/eureka).
+Used by the [Service Discovery library](/winter-boot/modules/eureka).
 
 ### `redis`, `memcache`
 
-Used by the [Redis](/modules/data-redis) and [Memcache](/modules/data-memcache) client libraries respectively.
+Used by the [Redis](/winter-boot/modules/data-redis) and [Memcache](/winter-boot/modules/data-memcache) client libraries respectively.
 
 ### `security`
 
-Reserved for the planned [Security module](/modules/security). Not yet implemented.
+Reserved for the planned [Security module](/winter-boot/modules/security). Not yet implemented.
 
 ## Module-config file convention
 

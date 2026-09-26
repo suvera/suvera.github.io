@@ -535,7 +535,7 @@ Switch between the two config files. `application.yml` enables the module, and `
             configFile: redis-config.yml
     ```
 
-    See [Configuration](/configuration) for every `application.yml` key.
+    See [Configuration](/winter-boot/configuration) for every `application.yml` key.
   </TabItem>
 
   <TabItem label="redis-config.yml">
@@ -556,7 +556,7 @@ Switch between the two config files. `application.yml` enables the module, and `
                 readTimeout: 2.5
     ```
 
-    The `__default__` entry supplies shared timeouts. The `primary` connection is also injectable by name with `#[Autowired("primary")]`. See the [Redis module](/modules/data-redis) for clusters, arrays, sentinels, and Dynomite rings.
+    The `__default__` entry supplies shared timeouts. The `primary` connection is also injectable by name with `#[Autowired("primary")]`. See the [Redis module](/winter-boot/modules/data-redis) for clusters, arrays, sentinels, and Dynomite rings.
   </TabItem>
 </Tabs>
 
@@ -612,5 +612,5 @@ The demo writes string, counter, hash, list, and set keys under a time-based pre
 
 ## Next steps
 
-- Read the [Redis module](/modules/data-redis) for cluster, array, sentinel, and Dynomite templates.
-- Browse all [Libraries](/modules/overview) when you need Kafka, SQS, S3, or Doctrine in the same app.
+- Read the [Redis module](/winter-boot/modules/data-redis) for cluster, array, sentinel, and Dynomite templates.
+- Browse all [Libraries](/winter-boot/modules/overview) when you need Kafka, SQS, S3, or Doctrine in the same app.

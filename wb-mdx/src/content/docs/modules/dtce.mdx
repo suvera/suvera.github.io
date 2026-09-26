@@ -51,8 +51,8 @@ Any executable task is placed in the queue, then processed by a worker. Any queu
 | Queue class | Kind | Notes |
 | --- | --- | --- |
 | `dev\winterframework\dtce\task\storage\TaskQueueShared` | Local | Make sure `winter.queue.port` is set in `application.yml`. This is local to the system, shared across processes. |
-| `dev\winterframework\dtce\task\storage\TaskQueueRedis` | Distributed | Requires the [Redis module](/modules/data-redis). |
-| `dev\winterframework\dtce\task\storage\TaskQueueKafka` | Distributed | Requires the [Kafka module](/modules/kafka). |
+| `dev\winterframework\dtce\task\storage\TaskQueueRedis` | Distributed | Requires the [Redis module](/winter-boot/modules/data-redis). |
+| `dev\winterframework\dtce\task\storage\TaskQueueKafka` | Distributed | Requires the [Kafka module](/winter-boot/modules/kafka). |
 | `dev\winterframework\dtce\task\storage\TaskQueuePdbc` | Distributed | Uses a database-backed queue. |
 
 ### 2. Task Store
@@ -63,7 +63,7 @@ Input data to a worker and output data from a worker are stored in the Task Stor
 | --- | --- | --- |
 | `dev\winterframework\dtce\task\storage\TaskIOStorageDisk` | Local disk | Local disks are not distributed; they only work on a single node. For multiple nodes, use NFS, HDFS, GlusterFS, or another shared file system. |
 | `dev\winterframework\dtce\task\storage\TaskIOStorageKvStore` | Local memory KV | Make sure `winter.kv.port` is set in `application.yml`. This is local to the system, shared across processes. |
-| `dev\winterframework\dtce\task\storage\TaskIOStorageRedis` | Distributed | Requires the [Redis module](/modules/data-redis). |
+| `dev\winterframework\dtce\task\storage\TaskIOStorageRedis` | Distributed | Requires the [Redis module](/winter-boot/modules/data-redis). |
 | `dev\winterframework\dtce\task\storage\TaskIOStoragePdbc` | Distributed | Uses a database-backed store. |
 
 ### 3. Task Worker
@@ -188,5 +188,5 @@ tasks:
 ```
 
 <Aside type="tip">
-  DTCE complements the built-in framework primitives. For single-process background work see [Async Tasks](/async/async-tasks) and [Scheduled Tasks](/async/scheduling); use DTCE when you need distributed, persistent task processing across nodes. Redis-backed queues use the [Redis module](/modules/data-redis); Kafka-backed queues use the [Kafka module](/modules/kafka).
+  DTCE complements the built-in framework primitives. For single-process background work see [Async Tasks](/winter-boot/async/async-tasks) and [Scheduled Tasks](/winter-boot/async/scheduling); use DTCE when you need distributed, persistent task processing across nodes. Redis-backed queues use the [Redis module](/winter-boot/modules/data-redis); Kafka-backed queues use the [Kafka module](/winter-boot/modules/kafka).
 </Aside>
