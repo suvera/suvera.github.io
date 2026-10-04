@@ -1,0 +1,250 @@
+---
+title: "Build a UI for a Winter Boot API"
+sidebar:
+  label: "Build UI"
+  order: 4
+description: "Winter Boot serves JSON APIs by design — build the UI as a separate frontend app (React, Next.js, Tailwind) that calls them."
+---
+
+import { Aside, Card, CardGrid, Tabs, TabItem } from '@astrojs/starlight/components';
+
+Winter Boot has no view layer — no templates, no server-rendered pages — and that is deliberate. It is a framework for backend services of all kinds: REST APIs, background workers, scheduled jobs, daemon processes, and message consumers. The parts that face a browser expose JSON APIs; the UI itself lives in a separate frontend application built with React, Next.js, Vue, Svelte, or plain HTML with Tailwind/Bootstrap, talking to those APIs over HTTP. This guide shows the split and the minimal wiring on each side.
+
+## The architecture
+
+```
+browser ── static files (CDN / Nginx) ──► your SPA (React, Next.js, …)
+   │
+   └── /api/* ── reverse proxy ──► Winter Boot (JSON only)
+```
+
+One origin serves both the static bundle and the API (the proxy forwards
+`/api/*` to the Swoole port). Same-origin means no CORS configuration, and the
+session cookie from the [RBAC guide](/winter-boot/howto/rbac) just works. The
+framework ships no CORS module, so treat cross-origin browser calls as a
+problem to avoid, not to solve.
+
+<CardGrid>
+  <Card title="Winter Boot owns" icon="server">
+    Routes, JSON contracts, authentication, RBAC/ABAC decisions, transactions.
+  </Card>
+  <Card title="The frontend owns" icon="laptop">
+    Pages, styling, form state, loading and error states, navigation.
+  </Card>
+</CardGrid>
+
+<Aside type="caution">
+  Never duplicate access rules in the frontend. Hiding a button because the
+  user lacks `orders:refund` is UX polish — the `403` from
+  [RequirePermission](/winter-boot/howto/rbac) /
+  [RequireAbac](/winter-boot/howto/abac) is the actual security. Every hidden
+  action must still be denied server-side.
+</Aside>
+
+## 1. The API contract
+
+The frontend depends on a contract, not on PHP. Fix these three shapes and
+both sides can evolve independently:
+
+```json title="POST /api/login — request"
+{ "username": "alice", "password": "s3cret" }
+```
+
+```json title="POST /api/login — response (200, sets the SID cookie)"
+{ "success": true, "data": { "username": "alice" } }
+```
+
+```json title="Guarded endpoints — errors"
+{ "error": "Authentication required" }
+{ "error": "Forbidden" }
+```
+
+Conventions that keep frontend code simple:
+
+- Every success body wraps in `{ "success": true, "data": … }`; every failure
+  carries `{ "error": "human-readable reason" }` with the right status
+  (`401` unknown session, `403` missing grant, `400` bad input).
+- Put the API under a prefix (`context-path: /api` in `application.yml` or a
+  proxy rule) so the proxy can distinguish API traffic from static files.
+- Write the backend endpoints with [REST controllers](/winter-boot/web/rest-controllers)
+  and guard them exactly as the [RBAC](/winter-boot/howto/rbac) and
+  [ABAC](/winter-boot/howto/abac) guides show — the frontend below logs in with
+  `AuthService` sessions and calls guarded routes unchanged.
+
+## 2. The frontend
+
+A tiny React app is enough to show the whole pattern: one fetch wrapper that
+sends the session cookie and translates statuses, one component with login and
+a guarded list, and a dev proxy so the browser stays same-origin. Switch
+between the three files — the same calls work identically from Next.js, Vue,
+or Svelte:
+
+<Tabs>
+  <TabItem label="src/api.js">
+    The only place that knows HTTP. Same-origin base URL, cookies included,
+    `401`/`403` surfaced as typed errors the UI switches on.
+
+    ```js
+    const BASE = '/api';
+
+    export class AuthError extends Error {}
+    export class ForbiddenError extends Error {}
+
+    async function request(path, options = {}) {
+      const res = await fetch(BASE + path, {
+        credentials: 'include', // send the SID session cookie
+        headers: { 'Content-Type': 'application/json', ...(options.headers ?? {}) },
+        ...options,
+      });
+
+      if (res.status === 401) throw new AuthError('Please log in again.');
+      if (res.status === 403) throw new ForbiddenError('You are not allowed to do that.');
+
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? `Request failed (${res.status})`);
+      return body.data ?? body;
+    }
+
+    export const api = {
+      login: (username, password) =>
+        request('/login', { method: 'POST', body: JSON.stringify({ username, password }) }),
+      logout: () => request('/logout', { method: 'POST' }),
+      pendingOrders: () => request('/orders/pending'),
+    };
+    ```
+  </TabItem>
+
+  <TabItem label="src/App.jsx">
+    Login form plus a guarded list. `AuthError` routes back to login,
+    `ForbiddenError` renders an inline message — never a retry loop.
+
+    ```jsx
+    import { useState } from 'react';
+    import { api, AuthError, ForbiddenError } from './api.js';
+
+    export default function App() {
+      const [user, setUser] = useState(null);
+      const [orders, setOrders] = useState([]);
+      const [notice, setNotice] = useState('');
+      const [form, setForm] = useState({ username: '', password: '' });
+
+      async function handleLogin(e) {
+        e.preventDefault();
+        setNotice('');
+        try {
+          const data = await api.login(form.username, form.password);
+          setUser(data.username);
+          await loadOrders();
+        } catch (err) {
+          setNotice(err.message);
+        }
+      }
+
+      async function loadOrders() {
+        try {
+          setOrders(await api.pendingOrders());
+        } catch (err) {
+          if (err instanceof AuthError) {
+            setUser(null); // session expired: back to the login form
+          }
+          setNotice(err.message);
+        }
+      }
+
+      if (!user) {
+        return (
+          <form onSubmit={handleLogin} className="mx-auto max-w-sm space-y-3 p-6">
+            <h1 className="text-xl font-bold">Log in</h1>
+            {notice && <p className="text-red-600">{notice}</p>}
+            <input
+              className="w-full border p-2"
+              placeholder="Username"
+              value={form.username}
+              onChange={(e) => setForm({ ...form, username: e.target.value })}
+            />
+            <input
+              className="w-full border p-2"
+              type="password"
+              placeholder="Password"
+              value={form.password}
+              onChange={(e) => setForm({ ...form, password: e.target.value })}
+            />
+            <button className="w-full bg-blue-600 p-2 text-white" type="submit">
+              Log in
+            </button>
+          </form>
+        );
+      }
+
+      return (
+        <main className="mx-auto max-w-2xl space-y-3 p-6">
+          <h1 className="text-xl font-bold">Pending orders</h1>
+          {notice && <p className="text-red-600">{notice}</p>}
+          <ul className="divide-y border">
+            {orders.map((o) => (
+              <li key={o.id} className="p-2">
+                #{o.id} — {o.amount} ({o.status})
+              </li>
+            ))}
+          </ul>
+        </main>
+      );
+    }
+    ```
+  </TabItem>
+
+  <TabItem label="vite.config.js">
+    Dev-only proxy: the browser calls `/api/*` on the Vite origin, Vite
+    forwards to Swoole. No CORS headers needed anywhere.
+
+    ```js
+    import { defineConfig } from 'vite';
+
+    export default defineConfig({
+      server: {
+        proxy: {
+          '/api': { target: 'http://127.0.0.1:8080', changeOrigin: true },
+        },
+      },
+    });
+    ```
+  </TabItem>
+</Tabs>
+
+Styling is ordinary frontend work: the `className`s above are Tailwind, but a
+Bootstrap stylesheet with `class` attributes behaves the same — the backend
+never sees it.
+
+## 3. Production wiring
+
+- Build the SPA (`npm run build`) and serve the static files from Nginx or a
+  CDN — never from the Swoole process.
+- Proxy `/api/*` to the Winter Boot port (`8080` in these guides) with
+  `changeOrigin`-equivalent behaviour, preserving cookies and paths.
+- Keep Winter Boot bound to localhost or an internal interface; only the proxy
+  faces the internet.
+- Secrets stay server-side: the bundle may hold the `/api` path prefix, never
+  API keys, DB passwords, or signing keys — those live in backend
+  [property sources](/winter-boot/configuration) as the guides show.
+
+## 4. What else to think about
+
+- **Sessions vs tokens.** The guides use cookie sessions (`SID`), which fit
+  same-origin browser apps with zero frontend token code. If a mobile app or a
+  third party also calls the API, add token auth (e.g. an `Authorization`
+  header the interceptor reads via `getFirstHeader()`) alongside sessions —
+  don't bend cookies to fit non-browsers.
+- **Version the API.** The frontend bundle and the backend deploy separately;
+  prefix routes (`/api/v1/orders`) so an old bundle keeps working while the new
+  one rolls out.
+- **Loading and empty states.** Every `api.*` call is async: skeleton rows
+  while pending, an empty-list message (not a blank page), and the `notice`
+  pattern above for failures.
+- **Don't leak internals.** Backend error bodies must stay generic (`Forbidden`,
+  never stack traces or SQL) — the frontend can only render what the API sends.
+
+## Next steps
+
+- [RBAC](/winter-boot/howto/rbac) — login, sessions, and the route guards this UI calls.
+- [ABAC](/winter-boot/howto/abac) — contextual per-operation policies behind the same endpoints.
+- [REST controllers](/winter-boot/web/rest-controllers) — shaping the JSON contracts the frontend consumes.

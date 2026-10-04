@@ -1,0 +1,913 @@
+---
+title: "Role-Based Access Control (RBAC) in Winter Boot"
+sidebar:
+  label: "RBAC"
+  order: 2
+description: "Implement RBAC in a Winter Boot app: schema, service beans, route guards, and Redis-cached permission checks."
+---
+
+import { Aside, Card, CardGrid, Tabs, TabItem } from '@astrojs/starlight/components';
+
+Role-based access control answers one question on every request: *is this caller allowed to do this?* Users get roles, roles carry permissions, and your code checks permissions — never raw user ids — at the boundary of each protected operation.
+
+Winter Boot has no dedicated security module yet (see [Security](/winter-boot/modules/security)), so you build RBAC from framework primitives: a relational schema, `#[Service]` beans for the checks, interceptors or custom AOP attributes for enforcement, and declarative `#[Cacheable]` caching so permission lookups do not hit the database on every request. This guide wires all four pieces together.
+
+## The model
+
+Five tables, one naming convention:
+
+- `users` — who can log in.
+- `roles` — named groups such as `admin`, `editor`, `viewer`.
+- `permissions` — fine-grained grants named `resource:action`, e.g. `orders:read`, `orders:refund`, `users:ban`.
+- `role_permissions` — which role carries which permission (many-to-many).
+- `user_roles` — which user holds which role (many-to-many).
+
+```
+users ──< user_roles >── roles ──< role_permissions >── permissions
+```
+
+<Aside type="tip">
+  Check **permissions**, not roles, in business code (`orders:refund` rather than
+  `isAdmin`). Roles change meaning over time; a permission name stays pinned to
+  the operation it guards. Roles are just the admin UI's way of bundling
+  permissions.
+</Aside>
+
+## 1. Table schema
+
+Create the tables once with a [migration](/winter-boot/data/migrations). With
+`migrations: { enabled: true }` on your datasource, put the files under
+`/migrations/{dsName}/`, e.g. `/migrations/myapp/` — files run in alphabetical
+order and are tracked in the `winter_migrations` table. Switch between the two
+migration files:
+
+<Tabs>
+  <TabItem label="001-rbac.sql">
+    The schema: users, roles, permissions, and the two join tables.
+
+    ```sql
+    CREATE TABLE users (
+        id BIGINT NOT NULL PRIMARY KEY AUTO_INCREMENT,
+        username VARCHAR(255) NOT NULL UNIQUE,
+        password_hash VARCHAR(255) NOT NULL,
+        is_super_admin SMALLINT NOT NULL DEFAULT 0,
+        created_at BIGINT NOT NULL DEFAULT 0
+    );
+
+    CREATE TABLE roles (
+        id BIGINT NOT NULL PRIMARY KEY AUTO_INCREMENT,
+        name VARCHAR(100) NOT NULL UNIQUE,
+        description VARCHAR(500) NOT NULL DEFAULT ''
+    );
+
+    CREATE TABLE permissions (
+        id BIGINT NOT NULL PRIMARY KEY AUTO_INCREMENT,
+        name VARCHAR(150) NOT NULL UNIQUE,
+        description VARCHAR(500) NOT NULL DEFAULT ''
+    );
+
+    CREATE TABLE role_permissions (
+        role_id BIGINT NOT NULL,
+        permission_id BIGINT NOT NULL,
+        PRIMARY KEY (role_id, permission_id)
+    );
+
+    CREATE TABLE user_roles (
+        user_id BIGINT NOT NULL,
+        role_id BIGINT NOT NULL,
+        PRIMARY KEY (user_id, role_id)
+    );
+
+    CREATE INDEX idx_user_roles_user ON user_roles (user_id);
+    CREATE INDEX idx_role_permissions_role ON role_permissions (role_id);
+    ```
+  </TabItem>
+
+  <TabItem label="002-rbac-seed.sql">
+    Baseline roles and grants, so every environment starts identical.
+
+    ```sql
+    INSERT INTO roles (name, description) VALUES
+        ('admin', 'Full access'),
+        ('editor', 'Can manage orders'),
+        ('viewer', 'Read-only access');
+
+    INSERT INTO permissions (name, description) VALUES
+        ('orders:read', 'View orders'),
+        ('orders:refund', 'Refund orders'),
+        ('users:ban', 'Ban users');
+
+    INSERT INTO role_permissions (role_id, permission_id)
+    SELECT r.id, p.id FROM roles r CROSS JOIN permissions p
+    WHERE r.name = 'admin';
+
+    INSERT INTO role_permissions (role_id, permission_id)
+    SELECT r.id, p.id FROM roles r JOIN permissions p ON p.name IN ('orders:read', 'orders:refund')
+    WHERE r.name = 'editor';
+
+    INSERT INTO role_permissions (role_id, permission_id)
+    SELECT r.id, p.id FROM roles r JOIN permissions p ON p.name = 'orders:read'
+    WHERE r.name = 'viewer';
+    ```
+  </TabItem>
+</Tabs>
+
+<Aside type="caution">
+  Store only password hashes (`password_hash()` / `password_verify()` — see
+  `PasswordHasher` below). Never store plain-text passwords, and never log
+  usernames with credentials, raw bodies, or headers.
+</Aside>
+
+## 2. Abstractions and beans
+
+Three beans carry the whole feature. Keep them separated so each one can be
+tested and cached independently:
+
+<CardGrid>
+  <Card title="RbacService" icon="padlock">
+    Answers `hasPermission($userId, $permission)` and `getUserPermissions($userId)`.
+    The only bean that reads the RBAC tables.
+  </Card>
+  <Card title="PasswordHasher" icon="key">
+    One `#[Component]` wrapping `password_hash()` / `password_verify()` so
+    hashing policy lives in exactly one place.
+  </Card>
+  <Card title="AuthService" icon="user">
+    Verifies credentials, opens the session, and stamps the identity onto it.
+    Controllers call it; they never touch the RBAC tables directly.
+  </Card>
+</CardGrid>
+
+Define the contract as an interface and implement it in a class ending with
+`Impl` — that suffix is what makes `beanByClass(RbacService::class)` resolve,
+and lets you swap a fake in tests without touching callers. Switch between the
+four source files:
+
+<Tabs>
+  <TabItem label="service/RbacService.php">
+    The contract. Every permission question in the app goes through this interface.
+
+    ```php
+    <?php
+    declare(strict_types=1);
+
+    namespace dev\example\service;
+
+    interface RbacService
+    {
+        /** All permission names granted to the user (via all their roles). */
+        public function getUserPermissions(int $userId): array;
+
+        /** True when the user holds the permission (or is super-admin). */
+        public function hasPermission(int $userId, string $permission): bool;
+
+        /** True when the user holds the role. */
+        public function hasRole(int $userId, string $role): bool;
+
+        public function assignRole(int $userId, string $role): void;
+
+        public function revokeRole(int $userId, string $role): void;
+    }
+    ```
+  </TabItem>
+
+  <TabItem label="service/RbacServiceImpl.php">
+    The implementation. `getUserPermissions()` is the single cached reader;
+    the writes evict it transactionally.
+
+    ```php
+    <?php
+    declare(strict_types=1);
+
+    namespace dev\example\service;
+
+    use dev\winterframework\cache\stereotype\Cacheable;
+    use dev\winterframework\cache\stereotype\CacheEvict;
+    use dev\winterframework\pdbc\PdbcTemplate;
+    use dev\winterframework\stereotype\Autowired;
+    use dev\winterframework\stereotype\Service;
+    use dev\winterframework\txn\stereotype\Transactional;
+
+    #[Service]
+    class RbacServiceImpl implements RbacService
+    {
+        #[Autowired]
+        protected PdbcTemplate $pdbc;
+
+        #[Cacheable(cacheNames: 'rbac-permissions', cacheManager: 'redisCacheManager')]
+        public function getUserPermissions(int $userId): array
+        {
+            // Cache key defaults to method name + arguments, so each user
+            // gets their own entry. The body runs only on a cache miss.
+            $rows = $this->pdbc->queryForList(
+                'SELECT p.name FROM permissions p'
+                . ' JOIN role_permissions rp ON rp.permission_id = p.id'
+                . ' JOIN user_roles ur ON ur.role_id = rp.role_id'
+                . ' WHERE ur.user_id = ?',
+                [$userId]
+            );
+            return array_column($rows, 'name');
+        }
+
+        public function hasPermission(int $userId, string $permission): bool
+        {
+            if ($this->isSuperAdmin($userId)) {
+                return true;
+            }
+            return in_array($permission, $this->getUserPermissions($userId), true);
+        }
+
+        public function hasRole(int $userId, string $role): bool
+        {
+            $count = $this->pdbc->queryForScalar(
+                'SELECT COUNT(*) FROM user_roles ur'
+                . ' JOIN roles r ON r.id = ur.role_id'
+                . ' WHERE ur.user_id = ? AND r.name = ?',
+                [$userId, $role]
+            );
+            return ((int)$count) > 0;
+        }
+
+        #[Transactional]
+        #[CacheEvict(cacheNames: 'rbac-permissions', cacheManager: 'redisCacheManager', allEntries: true)]
+        public function assignRole(int $userId, string $role): void
+        {
+            $this->pdbc->update(
+                'INSERT INTO user_roles (user_id, role_id)'
+                . ' SELECT ?, r.id FROM roles r WHERE r.name = ?',
+                [$userId, $role]
+            );
+        }
+
+        #[Transactional]
+        #[CacheEvict(cacheNames: 'rbac-permissions', cacheManager: 'redisCacheManager', allEntries: true)]
+        public function revokeRole(int $userId, string $role): void
+        {
+            $this->pdbc->update(
+                'DELETE FROM user_roles WHERE user_id = ?'
+                . ' AND role_id = (SELECT id FROM roles WHERE name = ?)',
+                [$userId, $role]
+            );
+        }
+
+        private function isSuperAdmin(int $userId): bool
+        {
+            return (bool)$this->pdbc->queryForScalar(
+                'SELECT is_super_admin FROM users WHERE id = ?',
+                [$userId]
+            );
+        }
+    }
+    ```
+  </TabItem>
+
+  <TabItem label="service/PasswordHasher.php">
+    Hashing policy in exactly one place, so upgrades touch one file.
+
+    ```php
+    <?php
+    declare(strict_types=1);
+
+    namespace dev\example\service;
+
+    use dev\winterframework\stereotype\Component;
+
+    #[Component]
+    class PasswordHasher
+    {
+        public function hash(string $plainPassword): string
+        {
+            return password_hash($plainPassword, PASSWORD_BCRYPT);
+        }
+
+        public function verify(string $plainPassword, string $hash): bool
+        {
+            return password_verify($plainPassword, $hash);
+        }
+    }
+    ```
+  </TabItem>
+
+  <TabItem label="service/AuthService.php">
+    Verifies credentials and owns the session. Note `queryForMap` throws
+    `EmptyResultDataAccessException` when no row matches — that becomes the
+    same `null` as a wrong password, so callers cannot enumerate accounts.
+
+    ```php
+    <?php
+    declare(strict_types=1);
+
+    namespace dev\example\service;
+
+    use dev\winterframework\pdbc\PdbcTemplate;
+    use dev\winterframework\pdbc\ex\EmptyResultDataAccessException;
+    use dev\winterframework\stereotype\Autowired;
+    use dev\winterframework\stereotype\Service;
+    use dev\winterframework\web\http\HttpRequest;
+    use dev\winterframework\web\http\ResponseEntity;
+    use dev\winterframework\web\session\SessionManager;
+    use dev\winterframework\web\session\SessionOptions;
+
+    #[Service]
+    class AuthService
+    {
+        #[Autowired]
+        protected PdbcTemplate $pdbc;
+
+        #[Autowired]
+        protected PasswordHasher $passwords;
+
+        #[Autowired]
+        protected SessionManager $sessions;
+
+        #[Autowired]
+        protected \SessionHandlerInterface $store;
+
+        #[Autowired]
+        protected RbacService $rbac;
+
+        private SessionOptions $options;
+
+        public function __construct()
+        {
+            $this->options = new SessionOptions(name: 'SID', expirySecs: 86400);
+        }
+
+        /** Returns the user id on success, null on bad credentials. */
+        public function login(string $username, string $password): ?int
+        {
+            try {
+                $row = $this->pdbc->queryForMap(
+                    'SELECT id, password_hash FROM users WHERE username = ?',
+                    [$username]
+                );
+            } catch (EmptyResultDataAccessException $e) {
+                return null;
+            }
+            if (!$this->passwords->verify($password, $row['password_hash'])) {
+                return null;
+            }
+            return (int)$row['id'];
+        }
+
+        public function loginAndCommit(HttpRequest $req, int $userId, string $username): ResponseEntity
+        {
+            $session = $this->sessions->open($req, $this->store, $this->options);
+            $session->setUsername($username);
+            $session->set('uid', $userId);
+
+            $res = ResponseEntity::ok(['status' => 'logged-in']);
+            $this->sessions->commit($session, $res, $this->store, $this->options);
+            return $res;
+        }
+
+        public function currentUserId(HttpRequest $req): ?int
+        {
+            $session = $this->sessions->open($req, $this->store, $this->options);
+            if ($session->isNew()) {
+                return null;
+            }
+            $uid = $session->get('uid');
+            return is_numeric($uid) ? (int)$uid : null;
+        }
+    }
+    ```
+  </TabItem>
+</Tabs>
+
+Why this shape:
+
+- **One reader.** Every permission question funnels through
+  `getUserPermissions()`, so there is exactly one method to cache and one
+  query to tune.
+- **Writes evict.** `assignRole()` / `revokeRole()` run inside a
+  `#[Transactional]` write and evict the `rbac-permissions` cache *after* the
+  transaction commits (the `CacheEvict` default), so a crash mid-write can
+  never leave stale grants behind. `allEntries: true` is the safe default —
+  one user's new role can change what shared permission lists resolve to, so
+  flushing the container beats reasoning about each affected key. Narrow it to
+  a per-user key only once you have measured the flush cost.
+- **Deny by default.** Unknown users, missing rows, and empty role sets all
+  resolve to "no permission" — the code never needs an explicit deny branch.
+
+<Aside type="note">
+  The session store (`\SessionHandlerInterface` bean) defaults to files. For
+  multi-node deployments declare one store bean backed by the database
+  (`PdbcSessionStore`) or Redis (`RedisSessionStore`) — see
+  [Sessions](/winter-boot/core/request-sessions). Sessions carry *identity*
+  (who the caller is); permissions always come from `RbacService`, so a role
+  change takes effect without forcing a logout.
+</Aside>
+
+## 3. Enforcement: interceptor or AOP attribute
+
+Pick the enforcement point that matches the granularity you need. Most apps end
+up using both: the interceptor for coarse route gates, the attribute for
+per-operation checks.
+
+| Approach | Scope | Best for |
+|---|---|---|
+| `HandlerInterceptor` | URI patterns (`^\/admin\/.*`) | Coarse gates: whole admin tree needs `admin` role |
+| Custom AOP `#[RequirePermission]` | Single endpoint or service method | Fine-grained: this method needs `orders:refund` |
+
+### Option A — coarse gate with a HandlerInterceptor
+
+The interceptor resolves the caller from the session, asks `RbacService`, and
+short-circuits with `401` (not logged in) or `403` (logged in, not allowed).
+Switch between the interceptor and its registration:
+
+<Tabs>
+  <TabItem label="interceptor/RbacInterceptor.php">
+    The gate. Takes its collaborators as plain constructor arguments — it is
+    created with `new` in the configurer, so `#[Autowired]` would not be
+    injected here.
+
+    ```php
+    <?php
+    declare(strict_types=1);
+
+    namespace dev\example\interceptor;
+
+    use dev\example\service\AuthService;
+    use dev\example\service\RbacService;
+    use dev\winterframework\core\web\HandlerInterceptor;
+    use dev\winterframework\util\log\Wlf4p;
+    use dev\winterframework\web\http\HttpRequest;
+    use dev\winterframework\web\http\HttpStatus;
+    use dev\winterframework\web\http\ResponseEntity;
+    use Throwable;
+
+    class RbacInterceptor implements HandlerInterceptor
+    {
+        use Wlf4p;
+
+        public function __construct(
+            private AuthService $auth,
+            private RbacService $rbac,
+            private string $requiredRole = 'admin',
+        ) {
+        }
+
+        public function preHandle(HttpRequest $request, ResponseEntity $response): bool
+        {
+            $userId = $this->auth->currentUserId($request);
+            if ($userId === null) {
+                $response->withStatus(HttpStatus::$UNAUTHORIZED)
+                    ->withJson(['error' => 'Authentication required']);
+                return false;
+            }
+
+            if (!$this->rbac->hasRole($userId, $this->requiredRole)) {
+                self::logWarning('RBAC deny: user ' . $userId . ' hit ' . $request->getUri());
+                $response->withStatus(HttpStatus::$FORBIDDEN)
+                    ->withJson(['error' => 'Forbidden']);
+                return false;
+            }
+
+            return true;
+        }
+
+        public function postHandle(HttpRequest $request, ResponseEntity $response): void {}
+
+        public function afterCompletion(
+            HttpRequest $request,
+            ResponseEntity $response,
+            ?Throwable $ex = null
+        ): void {}
+    }
+    ```
+  </TabItem>
+
+  <TabItem label="config/WebConfig.php">
+    The registration. The configurer is itself a bean, so its dependencies are
+    injected and handed to the interceptor's constructor.
+
+    ```php
+    <?php
+    declare(strict_types=1);
+
+    namespace dev\example\config;
+
+    use dev\example\interceptor\RbacInterceptor;
+    use dev\example\service\AuthService;
+    use dev\example\service\RbacService;
+    use dev\winterframework\core\web\config\InterceptorRegistry;
+    use dev\winterframework\core\web\config\WebMvcConfigurer;
+    use dev\winterframework\stereotype\Autowired;
+    use dev\winterframework\stereotype\Configuration;
+
+    #[Configuration(name: 'webMvcConfigurer')]
+    class WebConfig implements WebMvcConfigurer
+    {
+        #[Autowired]
+        protected AuthService $auth;
+
+        #[Autowired]
+        protected RbacService $rbac;
+
+        public function addInterceptors(InterceptorRegistry $registry): void
+        {
+            $registry->addInterceptor(
+                new RbacInterceptor($this->auth, $this->rbac, 'admin'),
+                '^\/admin\/.*'
+            );
+        }
+    }
+    ```
+  </TabItem>
+</Tabs>
+
+<Aside type="note">
+  The registry keeps the exact instance you pass — it does not autowire it. See
+  [Interceptors](/winter-boot/web/interceptors) for ordering rules.
+</Aside>
+
+### Option B — fine-grained guard with a custom AOP attribute
+
+For per-operation checks (`orders:refund` on one endpoint, `users:ban` on
+another), a custom AOP attribute reads better than a pile of URI regexes. It
+follows the standard [custom AOP](/winter-boot/core/aop) shape: an attribute
+class plus a `WinterAspect` interceptor that calls `stopExecution()` with a
+`403` instead of letting the method run. Switch between the three files:
+
+<Tabs>
+  <TabItem label="rest/OrderController.php">
+    The guarded endpoint — start here to see what the guard protects. AOP
+    attributes belong on endpoint methods, not on controller helpers — helpers
+    run as ordinary calls and never trigger advice.
+
+    ```php
+    <?php
+    declare(strict_types=1);
+
+    namespace dev\example\rest;
+
+    use dev\example\aop\RequirePermission;
+    use dev\winterframework\stereotype\RestController;
+    use dev\winterframework\stereotype\web\GetMapping;
+    use dev\winterframework\stereotype\web\RequestMapping;
+
+    #[RestController]
+    #[RequestMapping(path: 'orders')]
+    class OrderController
+    {
+        #[GetMapping(path: 'pending')]
+        #[RequirePermission('orders:read')]
+        public function pendingOrders(): array
+        {
+            return ['orders' => []];
+        }
+    }
+    ```
+  </TabItem>
+
+  <TabItem label="aop/RequirePermission.php">
+    The attribute. Declares the required permission, hands out one shared
+    interceptor, and validates at boot that it sits on a suitable method.
+
+    ```php
+    <?php
+    declare(strict_types=1);
+
+    namespace dev\example\aop;
+
+    use Attribute;
+    use dev\winterframework\reflection\ref\RefMethod;
+    use dev\winterframework\reflection\support\StereoTypeValidations;
+    use dev\winterframework\stereotype\StereoTyped;
+    use dev\winterframework\stereotype\aop\AopStereoType;
+    use dev\winterframework\stereotype\aop\WinterAspect;
+    use dev\winterframework\type\TypeAssert;
+
+    #[Attribute(Attribute::TARGET_METHOD)]
+    #[StereoTyped]
+    class RequirePermission implements AopStereoType
+    {
+        use StereoTypeValidations;
+
+        private ?RequirePermissionInterceptor $interceptor = null;
+
+        public function __construct(
+            public string $value = '',
+        ) {
+        }
+
+        public function isPerInstance(): bool
+        {
+            return false; // one shared interceptor for all guarded methods
+        }
+
+        public function getAspect(): WinterAspect
+        {
+            if (!isset($this->interceptor)) {
+                $this->interceptor = new RequirePermissionInterceptor();
+            }
+            return $this->interceptor;
+        }
+
+        public function init(object $ref): void
+        {
+            /** @var RefMethod $ref */
+            TypeAssert::typeOf($ref, RefMethod::class);
+            $this->validateAopMethod($ref, 'RequirePermission');
+        }
+    }
+    ```
+  </TabItem>
+
+  <TabItem label="aop/RequirePermissionInterceptor.php">
+    The advice. `begin()` runs before the endpoint body: unknown sessions get
+    `401`, missing grants get `403` via `stopExecution()`, so the body never
+    runs. Services come from the application context because the interceptor
+    is shared, not a bean.
+
+    ```php
+    <?php
+    declare(strict_types=1);
+
+    namespace dev\example\aop;
+
+    use dev\example\service\AuthService;
+    use dev\example\service\RbacService;
+    use dev\winterframework\core\aop\AopExecutionContext;
+    use dev\winterframework\stereotype\aop\AopContext;
+    use dev\winterframework\stereotype\aop\WinterAspect;
+    use dev\winterframework\util\log\Wlf4p;
+    use dev\winterframework\web\http\HttpStatus;
+    use dev\winterframework\web\http\ResponseEntity;
+    use Throwable;
+
+    class RequirePermissionInterceptor implements WinterAspect
+    {
+        use Wlf4p;
+
+        public function begin(AopContext $ctx, AopExecutionContext $exCtx): void
+        {
+            /** @var RequirePermission $stereo */
+            $stereo = $ctx->getStereoType();
+            $appCtx = $ctx->getApplicationContext();
+
+            $auth = $appCtx->beanByClass(AuthService::class);
+            $rbac = $appCtx->beanByClass(RbacService::class);
+
+            $request = $appCtx->getCurrentHttpRequest();
+            $userId = ($request !== null) ? $auth->currentUserId($request) : null;
+
+            if ($userId === null) {
+                $exCtx->stopExecution(
+                    ResponseEntity::status(HttpStatus::$UNAUTHORIZED)->withJson([
+                        'error' => 'Authentication required',
+                    ])
+                );
+                return;
+            }
+
+            if (!$rbac->hasPermission($userId, $stereo->value)) {
+                self::logWarning(
+                    'RBAC deny: user ' . $userId . ' lacks ' . $stereo->value
+                    . ' on ' . $ctx->getMethod()->getName()
+                );
+                $exCtx->stopExecution(
+                    ResponseEntity::status(HttpStatus::$FORBIDDEN)->withJson([
+                        'error' => 'Forbidden',
+                    ])
+                );
+            }
+        }
+
+        public function beginFailed(AopContext $ctx, AopExecutionContext $exCtx, Throwable $ex): void
+        {
+            self::logError('RequirePermission begin failed: ' . $ex->getMessage());
+        }
+
+        public function commit(AopContext $ctx, AopExecutionContext $exCtx, mixed $result): void {}
+
+        public function commitFailed(
+            AopContext $ctx,
+            AopExecutionContext $exCtx,
+            mixed $result,
+            Throwable $ex
+        ): void {
+            self::logError('RequirePermission commit failed: ' . $ex->getMessage());
+        }
+
+        public function failed(AopContext $ctx, AopExecutionContext $exCtx, Throwable $ex): void
+        {
+            self::logError($ctx->getMethod()->getName() . ' failed: ' . $ex->getMessage());
+        }
+    }
+    ```
+  </TabItem>
+
+</Tabs>
+
+<Aside type="caution">
+  Deny via `stopExecution()` with a `401`/`403` response. Throwing from
+  `begin()` surfaces as a `500` — a server error, not a clean denial — and can
+  leak internals. Denials must also fail closed: if the session or the
+  permission lookup errors, deny, never allow.
+</Aside>
+
+## 4. Caching permission checks with Redis
+
+Every guarded request calls `hasPermission()`, which calls
+`getUserPermissions()` — a three-table join. Uncached, that join runs on every
+single request. The `#[Cacheable]` on `getUserPermissions()` (added in section
+2) already declares the caching; here is the backend that makes it cheap and
+shared across nodes. Switch between the two files:
+
+<Tabs>
+  <TabItem label="RbacApplication.php">
+    Enable caching on the application class. `#[EnableCaching]` must sit on
+    the same class as `#[WinterBootApplication]` — anywhere else throws a
+    `TypeError` at startup.
+
+    ```php
+    use dev\winterframework\stereotype\cache\EnableCaching;
+    use dev\winterframework\stereotype\WinterBootApplication;
+
+    #[WinterBootApplication(configDirectory: ['config'])]
+    #[EnableCaching]
+    class RbacApplication {
+    }
+    ```
+  </TabItem>
+
+  <TabItem label="config/CacheConfig.php">
+    Register a Redis-backed `CacheManager`. The default in-memory cache works
+    on one node; every other node would keep its own copy of each user's
+    grants. `RedisCache` (from the [Redis module](/winter-boot/modules/data-redis))
+    gives all nodes one shared copy, so the `CacheEvict` on `assignRole()` /
+    `revokeRole()` invalidates everyone at once.
+
+    ```php
+    <?php
+    declare(strict_types=1);
+
+    namespace dev\example\config;
+
+    use dev\winterframework\cache\CacheConfiguration;
+    use dev\winterframework\cache\CacheManager;
+    use dev\winterframework\cache\impl\SimpleCacheManager;
+    use dev\winterframework\data\redis\cache\RedisCache;
+    use dev\winterframework\data\redis\phpredis\PhpRedisTemplate;
+    use dev\winterframework\stereotype\Bean;
+    use dev\winterframework\stereotype\Configuration;
+
+    #[Configuration]
+    class CacheConfig
+    {
+        #[Bean('redisCacheManager')]
+        public function getRedisCacheManager(PhpRedisTemplate $redisTpl): CacheManager
+        {
+            $rbacCache = new RedisCache(
+                $redisTpl,
+                'rbac-permissions',
+                CacheConfiguration::get(
+                    maximumSize: 20000,
+                    expireAfterWriteMs: 300_000, // 5 minutes: bounds staleness
+                )
+            );
+
+            $manager = new SimpleCacheManager();
+            $manager->addCache($rbacCache);
+
+            return $manager;
+        }
+    }
+    ```
+  </TabItem>
+</Tabs>
+
+The third step needs no file: `RbacServiceImpl` already names the manager with
+`cacheManager: 'redisCacheManager'` on both `#[Cacheable]` and `#[CacheEvict]`.
+When several `CacheManager` beans exist, the attribute must name the right one
+— otherwise the default manager answers and your Redis cache sits empty.
+
+What this buys you, in request terms:
+
+- First request after login: one DB join, result stored in Redis under a
+  per-user key (the default key is method name + arguments, so user 7 and user
+  9 never share an entry).
+- Following requests for 5 minutes: zero DB hits — the AOP proxy returns the
+  cached grant list without entering the method body.
+- Role grant/revoke: `CacheEvict` fires after the transaction commits, so the
+  next check re-reads the DB. The 5-minute TTL is the backstop: even if an
+  eviction were missed, a stale grant lives at most 5 minutes.
+
+<Aside type="tip">
+  Size the TTL to your threat model, not your traffic. Shorter TTL = smaller
+  window where a revoked permission still works. Five minutes is a common
+  starting point; high-risk permissions (`users:ban`, `orders:refund`) can use a
+  separate cache container with a 30–60 second TTL while read-only grants keep
+  the longer one.
+</Aside>
+
+## 5. Configuration
+
+`application.yml` needs the server identity, the datasource with migrations
+enabled, and the Redis module:
+
+```yaml title="config/application.yml"
+server:
+    port: 8080
+    address: 0.0.0.0
+    context-path: /
+winter:
+    application:
+        name: RBAC Sample Application
+        id: rbac-sample-app
+        version: 1.0.0
+propertySources:
+    -
+        name: env
+        provider: dev\winterframework\io\EnvPropertySource
+datasource:
+    -
+        name: myapp
+        isPrimary: true
+        url: mysql:host=127.0.0.1;port=3306;dbname=myapp
+        username: app
+        password: "$env.DB_PASSWORD"
+        migrations:
+            enabled: true
+            useCli: false
+modules:
+    -
+        module: dev\winterframework\data\redis\RedisModule
+        enabled: true
+        configFile: redis-config.yml
+```
+
+<Aside type="note">
+  `propertySources` registers the built-in `EnvPropertySource`, so
+  `password: "$env.DB_PASSWORD"` reads the secret from the environment instead
+  of committing it to the file. See [Configuration](/winter-boot/configuration)
+  for every key and the [Redis module](/winter-boot/modules/data-redis) for
+  `redis-config.yml`.
+</Aside>
+
+## 6. What else to think about
+
+Out-of-the-box items teams usually discover one incident later — handled here
+up front:
+
+- **Super-admin bypass, kept tiny.** The `is_super_admin` flag exists for
+  break-glass access only. It lives in `hasPermission()`, not scattered across
+  controllers, so auditing who bypassed what means reading one method. Never
+  expose it as a role users can grant each other.
+- **Audit every denial.** Both guards already log denials with `logWarning`.
+  Ship those lines to your log aggregator and alert on spikes — a burst of
+  `403`s from one user is either an attacker probing or a broken role rollout.
+  Log user id, permission, and URI only — never passwords, tokens, or bodies.
+- **Separate authentication from authorisation failures.** `401` (unknown or
+  expired session) tells the client to log in again; `403` (valid session,
+  missing grant) tells it to stop asking. Merging them breaks client retry
+  logic and confuses incident triage.
+- **Test the matrix, not just the happy path.** At minimum: anonymous →
+  `401`; logged-in without the grant → `403`; with the grant → `200`;
+  revoke-then-retry → `403` again (proves the eviction works); super-admin →
+  `200` everywhere. The revoke test is the one that catches stale-cache bugs.
+- **Do not cache the session's roles.** It is tempting to stamp permissions
+  into the session at login and skip the lookup entirely — but then a revoked
+  grant stays valid until the session expires. Sessions carry identity;
+  `RbacService` (cached, short TTL) carries grants.
+- **Pick the session store for your topology.** Single node: the default file
+  store is fine. Multiple nodes or restarts that keep logins: declare one
+  `\SessionHandlerInterface` bean backed by the database or Redis (see
+  [Sessions](/winter-boot/core/request-sessions)).
+- **Rate-limit the login endpoint.** RBAC means nothing if passwords can be
+  brute-forced. Throttle `/login` per IP (a `HandlerInterceptor` counting in
+  Redis is one option) and return the same response for unknown users and wrong
+  passwords so callers cannot enumerate accounts.
+- **Grow deliberately.** When flat roles stop fitting, add (in this order):
+  permission groups in the admin UI (display-only, no schema change), then
+  ownership checks (`order.owner_id = caller`), and only then hierarchical
+  roles or attribute-based rules — each step reuses `RbacService` as the funnel.
+
+## 7. Verify it works
+
+1. Run migrations, start the app, create a user and grant them `viewer`.
+2. Log in (`POST /login`) and keep the session cookie.
+3. `GET /orders/pending` → `200`.
+4. Call an endpoint guarded by `orders:refund` → `403`.
+5. `assignRole(user, 'editor')`, retry → `200` (proves grant + eviction).
+6. `revokeRole(user, 'editor')`, retry → `403` (proves eviction again).
+7. Drop the cookie and retry → `401`.
+
+If step 5 or 6 misbehaves, the cache is lying: confirm the attribute names the
+`redisCacheManager` bean and that `assignRole`/`revokeRole` actually commit
+before the eviction fires.
+
+## Next steps
+
+- [Caching](/winter-boot/ops/caching) — attribute options (`key`,
+  `condition`, `unless`) and the in-memory / KV backends.
+- [Interceptors](/winter-boot/web/interceptors) — ordering, URI patterns, and
+  `afterCompletion` cleanup.
+- [AOP](/winter-boot/core/aop) — the full advice lifecycle and the runnable
+  [AOP guard example](/winter-boot/examples/aop-app).
+- [Sessions](/winter-boot/core/request-sessions) — stores, cookie options, and
+  the identity fields that travel with each session.
+- [Transactions](/winter-boot/data/transactions) — propagation and rollback
+  rules behind the `#[Transactional]` writes above.

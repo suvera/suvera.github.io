@@ -1,0 +1,218 @@
+---
+title: "Send Email with a Third-Party Library in Winter Boot"
+sidebar:
+  label: "Email"
+  order: 5
+description: "Send email from a Winter Boot app with Symfony Mailer: transport beans, templated messages, and async delivery."
+---
+
+import { Aside, Card, CardGrid, Tabs, TabItem } from '@astrojs/starlight/components';
+
+Winter Boot ships no mailer — email goes through a third-party library wired as ordinary beans. This guide uses [Symfony Mailer](https://symfony.com/doc/current/mailer.html) (`symfony/mailer`): DSN-configured transports, a `Mailer` bean, a small `EmailService` for templated messages, and `#[Async]` delivery so SMTP latency never blocks a request.
+
+## 1. Install and configure
+
+Require the package and point a DSN at your SMTP server. For local development use [MailHog](https://github.com/mailhog/MailHog) (`smtp://127.0.0.1:1025`, web UI on port `8025`); for staging, Mailtrap's sandbox SMTP credentials:
+
+```bash
+composer require symfony/mailer
+```
+
+Custom keys live straight in `application.yml` and are injected with `#[Value]`:
+
+```yaml title="config/application.yml — additions"
+mail:
+    dsn: "$env.MAIL_DSN"
+    from: "no-reply@example.com"
+    templates: "templates/emails"
+```
+
+(`$env.MAIL_DSN` needs the `EnvPropertySource` registered under
+`propertySources` — see [Configuration](/winter-boot/configuration). Set
+`MAIL_DSN=smtp://127.0.0.1:1025` locally.)
+
+The DSN also carries the SMTP username and password for servers that need
+authentication:
+
+```bash
+MAIL_DSN="smtp://USERNAME:PASSWORD@smtp.mailtrap.io:2525"
+```
+
+URL-encode both values (`%40` for `@`, `%3A` for `:`) when they contain
+reserved characters. Because the whole DSN — credentials included — lives in
+the environment variable, no secret is ever committed to `application.yml`.
+
+## 2. Beans and templates
+
+Three files: a configuration exposing the transport and mailer, a service that
+builds and sends messages, and a plain-PHP template (no engine needed — output
+buffering plus `htmlspecialchars` is enough for transactional mail). Switch
+between them:
+
+<Tabs>
+  <TabItem label="config/MailConfig.php">
+    The transport comes from the DSN, so switching providers (MailHog →
+    Mailtrap → SES) is a config change, not a code change.
+
+    ```php
+    <?php
+    declare(strict_types=1);
+
+    namespace dev\example\config;
+
+    use dev\winterframework\stereotype\Bean;
+    use dev\winterframework\stereotype\Configuration;
+    use dev\winterframework\stereotype\Value;
+    use Symfony\Component\Mailer\Mailer;
+    use Symfony\Component\Mailer\Transport;
+    use Symfony\Component\Mailer\Transport\TransportInterface;
+
+    #[Configuration]
+    class MailConfig
+    {
+        #[Value('${mail.dsn}')]
+        protected string $dsn;
+
+        #[Bean]
+        public function mailTransport(): TransportInterface
+        {
+            return Transport::fromDsn($this->dsn);
+        }
+
+        #[Bean]
+        public function mailer(TransportInterface $transport): Mailer
+        {
+            return new Mailer($transport);
+        }
+    }
+    ```
+  </TabItem>
+
+  <TabItem label="service/EmailService.php">
+    One place that sends mail. Failures are caught, logged without the body,
+    and reported as `false` — SMTP errors must never bubble up as `500`s with
+    recipient details. `sendAsync()` runs in a worker (see section 3).
+
+    ```php
+    <?php
+    declare(strict_types=1);
+
+    namespace dev\example\service;
+
+    use dev\winterframework\stereotype\Autowired;
+    use dev\winterframework\stereotype\Service;
+    use dev\winterframework\stereotype\Value;
+    use dev\winterframework\task\async\stereotype\Async;
+    use dev\winterframework\util\log\Wlf4p;
+    use Symfony\Component\Mailer\Exception\TransportExceptionInterface;
+    use Symfony\Component\Mailer\Mailer;
+    use Symfony\Component\Mime\Email;
+
+    #[Service]
+    class EmailService
+    {
+        use Wlf4p;
+
+        #[Autowired]
+        protected Mailer $mailer;
+
+        #[Value('${mail.from}')]
+        protected string $from;
+
+        #[Value('${mail.templates}')]
+        protected string $templateDir;
+
+        public function sendWelcome(string $to, string $username): bool
+        {
+            $html = $this->render('welcome-email.php', ['username' => $username]);
+            return $this->send($to, 'Welcome aboard!', "Hi {$username}, welcome aboard!", $html);
+        }
+
+        public function send(string $to, string $subject, string $text, ?string $html = null): bool
+        {
+            try {
+                $email = (new Email())
+                    ->from($this->from)
+                    ->to($to)
+                    ->subject($subject)
+                    ->text($text);
+                if ($html !== null) {
+                    $email->html($html);
+                }
+                $this->mailer->send($email);
+                return true;
+            } catch (TransportExceptionInterface $e) {
+                self::logEx($e, 'Mail send failed to ' . $to); // address only, never the body
+                return false;
+            }
+        }
+
+        #[Async]
+        public function sendAsync(string $to, string $subject, string $text, ?string $html = null): void
+        {
+            $this->send($to, $subject, $text, $html); // result is logged, not returned
+        }
+
+        public function render(string $template, array $vars): string
+        {
+            extract($vars, EXTR_SKIP);
+            ob_start();
+            include $this->templateDir . '/' . basename($template); // basename blocks ../ traversal
+            return (string)ob_get_clean();
+        }
+    }
+    ```
+  </TabItem>
+
+  <TabItem label="templates/emails/welcome-email.php">
+    A template is just PHP with escaped output. Keep styling inline — mail
+    clients ignore external stylesheets.
+
+    ```php
+    <h1>Hi, <?= htmlspecialchars($username ?? 'there') ?>!</h1>
+    <p>Your account is ready. Reply to this email if you need help.</p>
+    ```
+  </TabItem>
+</Tabs>
+
+## 3. Sync or async delivery
+
+- `send()` blocks until the SMTP exchange finishes — fine for a reply-to
+  contact form, wrong for a post-registration mail inside a request handler.
+- `sendAsync()` returns immediately and runs in a worker process. It needs
+  `#[EnableAsync]` on the application class (and Swoole, like all workers):
+
+```php title="MyApplication.php — additions"
+use dev\winterframework\stereotype\task\EnableAsync;
+
+#[WinterBootApplication(configDirectory: ['config'])]
+#[EnableAsync]
+class MyApplication {
+}
+```
+
+Tune the pool in `application.yml` (`winter.task.async: { poolSize: 4, queueCapacity: 1000 }`
+— see [Async Tasks](/winter-boot/async/async-tasks)). Fire-and-forget means the
+caller never sees the result, which is exactly why the service logs every
+failure: an exception in a worker with no logging vanishes silently.
+
+## 4. What else to think about
+
+- **Attachments** are one call: `$email->attachFromPath('/invoices/42.pdf')` before `send()`.
+- **Bulk mail is not a loop.** A thousand `sendAsync()` calls flood the pool and the SMTP server. For newsletters or digests, enqueue the recipient list and drain it with a [scheduled job](/winter-boot/async/scheduling) or a [DTCE worker](/winter-boot/modules/dtce) at the provider's rate limit.
+- **Test without SMTP.** Symfony Mailer's `InMemoryTransport` collects sent messages for assertions — swap it in a test `#[Bean]` and assert on subject/recipients instead of mocking the service.
+- **Never log bodies or addresses together.** Recipient + content in one log line is a privacy incident waiting for a log aggregator. Log the recipient on failure (for support triage), never the rendered body.
+- **Validate the sender domain.** SPF/DKIM/DMARC belong to your DNS, not your code — without them, everything above lands in spam.
+
+## 5. Verify it works
+
+1. Start MailHog and set `MAIL_DSN=smtp://127.0.0.1:1025`.
+2. Trigger `sendWelcome()` (a temporary controller endpoint or a unit test).
+3. Open `http://127.0.0.1:8025` — the message is there with subject and HTML body.
+4. Stop MailHog, trigger again — the call returns `false`, the app stays up, and the failure is in the logs with the recipient but no body.
+
+## Next steps
+
+- [Async Tasks](/winter-boot/async/async-tasks) — pool tuning behind `sendAsync()`.
+- [Scheduling](/winter-boot/async/scheduling) — digest and newsletter drains.
+- [Logging](/winter-boot/ops/logging) — log levels and handlers for the failure lines above.

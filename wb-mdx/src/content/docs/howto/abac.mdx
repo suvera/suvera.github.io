@@ -1,0 +1,790 @@
+---
+title: "Attribute-Based Access Control (ABAC) in Winter Boot"
+sidebar:
+  label: "ABAC"
+  order: 3
+description: "Implement ABAC in a Winter Boot app: policy schema, attribute resolution, a #[RequireAbac] guard, and cached policies."
+---
+
+import { Aside, Card, CardGrid, Tabs, TabItem } from '@astrojs/starlight/components';
+
+[RBAC](/winter-boot/howto/rbac) answers "is this user in the right role?" Attribute-based access control answers a richer question: "does this user, asking for this action, on this resource, in this context, satisfy a policy?" A support agent can refund a €50 paid order from their own region during business hours — but not a €5,000 order, not at midnight, and not outside their region. No role bundle expresses that; attributes do.
+
+Winter Boot has no policy engine module, so you build ABAC the same way as RBAC: a policy schema, `#[Service]` beans for evaluation, a custom AOP attribute for enforcement, and declarative caching so neither policies nor attributes hit the database per request.
+
+<Aside type="note">
+  This guide assumes the [RBAC guide](/winter-boot/howto/rbac) beans
+  (`AuthService`, the Redis `redisCacheManager`) already exist and builds on
+  them.
+</Aside>
+
+## The model
+
+Every decision combines four attribute families against stored policies:
+
+- **Subject** — who is asking: user id plus profile facts (`department`, `region`, `clearance_level`).
+- **Resource** — what is targeted: the row's own facts (`owner_id`, `amount`, `region`, `status`).
+- **Action** — what is attempted: `refund`, `read`, `ban`.
+- **Environment** — the context: current hour, caller IP.
+
+A **policy** names a resource type and action, carries an `allow` / `deny` effect, a priority, and a set of conditions per family. Evaluation is **first-applicable**: policies run in priority order, the first one whose conditions all match decides, and anything unmatched is denied.
+
+```
+request (subject + resource + action + env)
+  → policies for (resource type, action), priority ASC
+  → first fully-matching policy decides allow / deny
+  → no match → deny
+```
+
+| RBAC | ABAC |
+|---|---|
+| Grant is "user has role" | Grant is "attributes satisfy a policy" |
+| Changes when memberships change | Changes when facts change (amount, hour, region) |
+| Cache key: per user | Policies cached globally; subject facts cached per user |
+| Best for coarse access | Best for fine-grained, contextual rules |
+
+Most apps run both: RBAC guards the route (`admin` tree), ABAC guards the operation (`refund` this order now).
+
+## 1. Table schema
+
+ABAC needs three tables: subject facts, the policies themselves, and a resource table carrying the facts policies match on. (The example uses an `orders` table — substitute your own domain table and adjust the resolver in section 2.) Put the files next to the RBAC migrations under `/migrations/{dsName}/`:
+
+<Tabs>
+  <TabItem label="003-abac.sql">
+    Profiles, policies, and an orders table with matchable facts.
+
+    ```sql
+    CREATE TABLE user_profiles (
+        user_id BIGINT NOT NULL PRIMARY KEY,
+        department VARCHAR(100) NOT NULL DEFAULT '',
+        region VARCHAR(50) NOT NULL DEFAULT '',
+        clearance_level INT NOT NULL DEFAULT 0
+    );
+
+    CREATE TABLE abac_policies (
+        id BIGINT NOT NULL PRIMARY KEY AUTO_INCREMENT,
+        name VARCHAR(150) NOT NULL UNIQUE,
+        resource_type VARCHAR(100) NOT NULL,
+        action VARCHAR(100) NOT NULL,
+        effect VARCHAR(10) NOT NULL DEFAULT 'deny',
+        priority INT NOT NULL DEFAULT 100,
+        subject_conditions JSON,
+        resource_conditions JSON,
+        env_conditions JSON,
+        enabled SMALLINT NOT NULL DEFAULT 1
+    );
+
+    CREATE INDEX idx_abac_lookup ON abac_policies (resource_type, action, enabled, priority);
+
+    CREATE TABLE orders (
+        id BIGINT NOT NULL PRIMARY KEY AUTO_INCREMENT,
+        owner_id BIGINT NOT NULL,
+        amount DECIMAL(10, 2) NOT NULL DEFAULT 0,
+        region VARCHAR(50) NOT NULL DEFAULT '',
+        status VARCHAR(50) NOT NULL DEFAULT 'paid'
+    );
+    ```
+  </TabItem>
+
+  <TabItem label="004-abac-seed.sql">
+    Three policies that show the whole model: a guardrail deny that beats
+    everything, a seniority override, and the standard rule.
+
+    ```sql
+    INSERT INTO user_profiles (user_id, department, region, clearance_level) VALUES
+        (1, 'support', 'EU', 5),
+        (2, 'support', 'EU', 9),
+        (3, 'sales', 'US', 5);
+
+    -- Guardrail: nobody refunds huge orders. Priority 10 runs first,
+    -- and a deny win is final.
+    INSERT INTO abac_policies
+        (name, resource_type, action, effect, priority, resource_conditions)
+    VALUES
+        ('deny-huge-refunds', 'order', 'refund', 'deny', 10, '{"amount": {"gt": 1000}}');
+
+    -- Seniority override: clearance 9+ skips the standard limits (but not the guardrail).
+    INSERT INTO abac_policies
+        (name, resource_type, action, effect, priority, subject_conditions)
+    VALUES
+        ('senior-override', 'order', 'refund', 'allow', 50, '{"clearance_level": {"gte": 9}}');
+
+    -- Standard rule: support refunds small paid orders during business hours.
+    INSERT INTO abac_policies
+        (name, resource_type, action, effect, priority,
+         subject_conditions, resource_conditions, env_conditions)
+    VALUES
+        ('support-refund-standard', 'order', 'refund', 'allow', 100,
+         '{"department": "support"}',
+         '{"amount": {"lte": 100}, "status": "paid"}',
+         '{"hour": {"gte": 9, "lt": 18}}');
+    ```
+  </TabItem>
+</Tabs>
+
+<Aside type="caution">
+  Conditions are JSON, so the database cannot index inside them — keep the
+  `WHERE` clause on the plain columns (`resource_type`, `action`, `enabled`)
+  and match conditions in PHP. Policies per type-and-action stay few, so the
+  PHP-side scan is trivial.
+</Aside>
+
+## 2. Abstractions and beans
+
+Four pieces, each with one job. Switch between the source files:
+
+<Tabs>
+  <TabItem label="service/AbacService.php">
+    The contract. Callers pass ids and context; the implementation resolves
+    every attribute itself, so enforcement points stay thin.
+
+    ```php
+    <?php
+    declare(strict_types=1);
+
+    namespace dev\example\service;
+
+    interface AbacService
+    {
+        /**
+         * True when some policy allows this user to perform the action
+         * on the resource right now. Anything else — no policy, missing
+         * attributes, unknown resource — is false.
+         *
+         * @param array{hour: int, ip: string} $env
+         */
+        public function isAllowed(
+            int $userId,
+            string $resourceType,
+            string $action,
+            int $resourceId,
+            array $env
+        ): bool;
+    }
+    ```
+  </TabItem>
+
+  <TabItem label="service/AbacServiceImpl.php">
+    The evaluator. Loads subject facts (cached per user), resource facts, and
+    the policies (cached globally), then runs first-applicable matching. A
+    missing attribute never matches — that is what makes the default-deny
+    airtight.
+
+    ```php
+    <?php
+    declare(strict_types=1);
+
+    namespace dev\example\service;
+
+    use dev\winterframework\cache\stereotype\Cacheable;
+    use dev\winterframework\pdbc\PdbcTemplate;
+    use dev\winterframework\pdbc\ex\EmptyResultDataAccessException;
+    use dev\example\resolver\DbResourceResolver;
+    use dev\winterframework\stereotype\Autowired;
+    use dev\winterframework\stereotype\Service;
+
+    #[Service]
+    class AbacServiceImpl implements AbacService
+    {
+        #[Autowired]
+        protected PdbcTemplate $pdbc;
+
+        #[Autowired]
+        protected PolicyService $policies;
+
+        #[Autowired]
+        protected DbResourceResolver $resources;
+
+        public function isAllowed(
+            int $userId,
+            string $resourceType,
+            string $action,
+            int $resourceId,
+            array $env
+        ): bool {
+            $subject = $this->loadSubjectAttrs($userId);
+
+            $resource = $this->resources->load($resourceType, $resourceId);
+            if ($resource === null) {
+                return false; // unknown resource: fail closed
+            }
+
+            foreach ($this->policies->getActivePolicies($resourceType, $action) as $policy) {
+                if (!$this->matchesConditions($policy['subject'], $subject, $subject)) {
+                    continue;
+                }
+                if (!$this->matchesConditions($policy['resource'], $resource, $subject)) {
+                    continue;
+                }
+                if (!$this->matchesConditions($policy['env'], $env, $subject)) {
+                    continue;
+                }
+                return $policy['effect'] === 'allow'; // first match decides
+            }
+
+            return false; // no policy matched: deny
+        }
+
+        #[Cacheable(cacheNames: 'abac-subjects', cacheManager: 'redisCacheManager')]
+        public function loadSubjectAttrs(int $userId): array
+        {
+            $attrs = ['id' => $userId];
+            try {
+                $row = $this->pdbc->queryForMap(
+                    'SELECT department, region, clearance_level FROM user_profiles WHERE user_id = ?',
+                    [$userId]
+                );
+            } catch (EmptyResultDataAccessException $e) {
+                return $attrs; // no profile: only the id is known, policies won't match
+            }
+            $attrs['department'] = $row['department'];
+            $attrs['region'] = $row['region'];
+            $attrs['clearance_level'] = (int)$row['clearance_level'];
+            return $attrs;
+        }
+
+        /** @param array<string, mixed> $conditions */
+        private function matchesConditions(array $conditions, array $actual, array $subject): bool
+        {
+            foreach ($conditions as $key => $expected) {
+                $value = $actual[$key] ?? null;
+                if ($value === null) {
+                    return false; // absent attributes never satisfy a condition
+                }
+                if (is_array($expected) && array_key_exists('$owner', $expected)) {
+                    if (($actual['owner_id'] ?? null) !== $subject['id']) {
+                        return false;
+                    }
+                    continue;
+                }
+                if (is_array($expected)) {
+                    foreach ($expected as $op => $target) {
+                        $ok = match ($op) {
+                            'lt' => $value < $target,
+                            'lte' => $value <= $target,
+                            'gt' => $value > $target,
+                            'gte' => $value >= $target,
+                            default => false, // unknown operator: fail closed
+                        };
+                        if (!$ok) {
+                            return false;
+                        }
+                    }
+                    continue;
+                }
+                if ($value !== $expected) {
+                    return false;
+                }
+            }
+            return true;
+        }
+    }
+    ```
+  </TabItem>
+
+  <TabItem label="service/PolicyService.php">
+    Policy storage. Reads are cached globally — one entry per
+    (resource type, action), shared by all users — and writes evict after the
+    transaction commits, so a policy change reaches every node at once.
+
+    ```php
+    <?php
+    declare(strict_types=1);
+
+    namespace dev\example\service;
+
+    use dev\winterframework\cache\stereotype\Cacheable;
+    use dev\winterframework\cache\stereotype\CacheEvict;
+    use dev\winterframework\pdbc\PdbcTemplate;
+    use dev\winterframework\stereotype\Autowired;
+    use dev\winterframework\stereotype\Service;
+    use dev\winterframework\txn\stereotype\Transactional;
+
+    #[Service]
+    class PolicyService
+    {
+        #[Autowired]
+        protected PdbcTemplate $pdbc;
+
+        /**
+         * @return list<array{name: string, effect: string, subject: array, resource: array, env: array}>
+         */
+        #[Cacheable(cacheNames: 'abac-policies', cacheManager: 'redisCacheManager')]
+        public function getActivePolicies(string $resourceType, string $action): array
+        {
+            $rows = $this->pdbc->queryForList(
+                'SELECT name, effect, subject_conditions, resource_conditions, env_conditions'
+                . ' FROM abac_policies'
+                . ' WHERE resource_type = ? AND action = ? AND enabled = 1'
+                . ' ORDER BY priority ASC',
+                [$resourceType, $action]
+            );
+            $policies = [];
+            foreach ($rows as $row) {
+                $policies[] = [
+                    'name' => $row['name'],
+                    'effect' => $row['effect'],
+                    'subject' => $this->decodeConditions($row['subject_conditions']),
+                    'resource' => $this->decodeConditions($row['resource_conditions']),
+                    'env' => $this->decodeConditions($row['env_conditions']),
+                ];
+            }
+            return $policies;
+        }
+
+        #[Transactional]
+        #[CacheEvict(cacheNames: ['abac-policies'], cacheManager: 'redisCacheManager', allEntries: true)]
+        public function savePolicy(
+            string $name,
+            string $resourceType,
+            string $action,
+            string $effect,
+            int $priority,
+            array $subject,
+            array $resource,
+            array $env
+        ): void {
+            $this->pdbc->update(
+                'INSERT INTO abac_policies'
+                . ' (name, resource_type, action, effect, priority,'
+                . ' subject_conditions, resource_conditions, env_conditions, enabled)'
+                . ' VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)',
+                [
+                    $name, $resourceType, $action, $effect, $priority,
+                    json_encode($subject), json_encode($resource), json_encode($env),
+                ]
+            );
+        }
+
+        #[Transactional]
+        #[CacheEvict(cacheNames: ['abac-policies'], cacheManager: 'redisCacheManager', allEntries: true)]
+        public function setPolicyEnabled(string $name, bool $enabled): void
+        {
+            $this->pdbc->update(
+                'UPDATE abac_policies SET enabled = ? WHERE name = ?',
+                [$enabled ? 1 : 0, $name]
+            );
+        }
+
+        private function decodeConditions(mixed $json): array
+        {
+            if (!is_string($json) || trim($json) === '') {
+                return []; // no conditions on this family: always matches
+            }
+            $decoded = json_decode($json, true);
+            return is_array($decoded) ? $decoded : [];
+        }
+    }
+    ```
+  </TabItem>
+
+  <TabItem label="resolver/DbResourceResolver.php">
+    Turns a (type, id) pair into the fact map policies match on. One component
+    with a `match` per resource type — add an arm per domain table. Unknown
+    types and missing rows return `null`, which the evaluator denies.
+
+    ```php
+    <?php
+    declare(strict_types=1);
+
+    namespace dev\example\resolver;
+
+    use dev\winterframework\pdbc\PdbcTemplate;
+    use dev\winterframework\pdbc\ex\EmptyResultDataAccessException;
+    use dev\winterframework\stereotype\Autowired;
+    use dev\winterframework\stereotype\Component;
+
+    #[Component]
+    class DbResourceResolver
+    {
+        #[Autowired]
+        protected PdbcTemplate $pdbc;
+
+        /** @return array<string, mixed>|null */
+        public function load(string $resourceType, int $resourceId): ?array
+        {
+            try {
+                return match ($resourceType) {
+                    'order' => $this->loadOrder($resourceId),
+                    default => null,
+                };
+            } catch (EmptyResultDataAccessException $e) {
+                return null;
+            }
+        }
+
+        /** @return array<string, mixed> */
+        private function loadOrder(int $orderId): array
+        {
+            $row = $this->pdbc->queryForMap(
+                'SELECT id, owner_id, amount, region, status FROM orders WHERE id = ?',
+                [$orderId]
+            );
+            return [
+                'id' => (int)$row['id'],
+                'owner_id' => (int)$row['owner_id'],
+                'amount' => (float)$row['amount'],
+                'region' => $row['region'],
+                'status' => $row['status'],
+            ];
+        }
+    }
+    ```
+  </TabItem>
+</Tabs>
+
+Why this shape:
+
+- **Three cacheable seams.** Policies are global (one entry per
+  type-and-action, shared by every user — tiny cardinality, huge hit rate).
+  Subject facts are per-user with a short TTL. Resource facts are read live:
+  they change with the domain row, and the row read is one indexed primary-key
+  lookup, not a join.
+- **First match wins.** Priority is meaningful without a separate combining
+  algorithm: guardrails go first (low numbers), overrides next, standard rules
+  last. Anything unmatched is denied.
+- **Nulls never match.** The `$value === null` guard plus
+  `default => false` on operators mean a missing fact or a typo'd operator
+  denies instead of accidentally allowing.
+- **One evaluator.** Like `RbacService`, every ABAC question funnels through
+  `isAllowed()` — one method to test, one place where fail-closed lives.
+
+<Aside type="note">
+  `AbacService` is an interface with an `Impl`-suffixed implementation so
+  `beanByClass(AbacService::class)` resolves — the same convention as the
+  [RBAC guide](/winter-boot/howto/rbac). `PolicyService` and
+  `DbResourceResolver` are concrete classes because the seams (policy rows,
+  domain tables) are data, not behaviour.
+</Aside>
+
+## 3. Enforcement with a #[RequireAbac] attribute
+
+The guard reads the resource id from the endpoint's arguments, builds the
+environment from the request, and asks `AbacService` — one attribute, no
+per-endpoint plumbing. It reuses the RBAC guide's `AuthService` for identity,
+so users log in once and both systems agree on who is calling. Switch between
+the three files:
+
+<Tabs>
+  <TabItem label="rest/OrderRefundController.php">
+    The guarded endpoint — start here. The `{id}` path segment binds to `$id`
+    (same `#[PathVariable]` mechanism as any handler), and the attribute names
+    the resource type and action to evaluate. The resource id reaches the
+    interceptor as the method's first argument.
+
+    ```php
+    <?php
+    declare(strict_types=1);
+
+    namespace dev\example\rest;
+
+    use dev\example\aop\RequireAbac;
+    use dev\winterframework\stereotype\RestController;
+    use dev\winterframework\stereotype\web\PathVariable;
+    use dev\winterframework\stereotype\web\PostMapping;
+    use dev\winterframework\stereotype\web\RequestMapping;
+
+    #[RestController]
+    #[RequestMapping(path: 'orders')]
+    class OrderRefundController
+    {
+        #[PostMapping(path: '{id}/refund')]
+        #[RequireAbac(resource: 'order', action: 'refund')]
+        public function refundOrder(#[PathVariable(name: 'id')] int $id): array
+        {
+            // Reached only when a policy allowed it.
+            return ['status' => 'refunded', 'orderId' => $id];
+        }
+    }
+    ```
+  </TabItem>
+
+  <TabItem label="aop/RequireAbac.php">
+    The attribute. Names the resource type and action, plus which method
+    argument carries the resource id (first by default).
+
+    ```php
+    <?php
+    declare(strict_types=1);
+
+    namespace dev\example\aop;
+
+    use Attribute;
+    use dev\winterframework\reflection\ref\RefMethod;
+    use dev\winterframework\reflection\support\StereoTypeValidations;
+    use dev\winterframework\stereotype\StereoTyped;
+    use dev\winterframework\stereotype\aop\AopStereoType;
+    use dev\winterframework\stereotype\aop\WinterAspect;
+    use dev\winterframework\type\TypeAssert;
+
+    #[Attribute(Attribute::TARGET_METHOD)]
+    #[StereoTyped]
+    class RequireAbac implements AopStereoType
+    {
+        use StereoTypeValidations;
+
+        private ?RequireAbacInterceptor $interceptor = null;
+
+        public function __construct(
+            public string $resource = '',
+            public string $action = '',
+            public int $resourceIdArg = 0,
+        ) {
+        }
+
+        public function isPerInstance(): bool
+        {
+            return false; // one shared interceptor for all guarded methods
+        }
+
+        public function getAspect(): WinterAspect
+        {
+            if (!isset($this->interceptor)) {
+                $this->interceptor = new RequireAbacInterceptor();
+            }
+            return $this->interceptor;
+        }
+
+        public function init(object $ref): void
+        {
+            /** @var RefMethod $ref */
+            TypeAssert::typeOf($ref, RefMethod::class);
+            $this->validateAopMethod($ref, 'RequireAbac');
+        }
+    }
+    ```
+  </TabItem>
+
+  <TabItem label="aop/RequireAbacInterceptor.php">
+    The advice. Resolves the user, the resource id, and the environment, then
+    delegates the whole decision to `AbacService`. A non-numeric resource id
+    or a missing request denies — never allows.
+
+    ```php
+    <?php
+    declare(strict_types=1);
+
+    namespace dev\example\aop;
+
+    use dev\example\service\AbacService;
+    use dev\example\service\AuthService;
+    use dev\winterframework\core\aop\AopExecutionContext;
+    use dev\winterframework\stereotype\aop\AopContext;
+    use dev\winterframework\stereotype\aop\WinterAspect;
+    use dev\winterframework\util\log\Wlf4p;
+    use dev\winterframework\web\http\HttpStatus;
+    use dev\winterframework\web\http\ResponseEntity;
+    use Throwable;
+
+    class RequireAbacInterceptor implements WinterAspect
+    {
+        use Wlf4p;
+
+        public function begin(AopContext $ctx, AopExecutionContext $exCtx): void
+        {
+            /** @var RequireAbac $stereo */
+            $stereo = $ctx->getStereoType();
+            $appCtx = $ctx->getApplicationContext();
+
+            $request = $appCtx->getCurrentHttpRequest();
+            if ($request === null) {
+                $exCtx->stopExecution(
+                    ResponseEntity::status(HttpStatus::$UNAUTHORIZED)->withJson([
+                        'error' => 'Authentication required',
+                    ])
+                );
+                return;
+            }
+
+            $auth = $appCtx->beanByClass(AuthService::class);
+            $userId = $auth->currentUserId($request);
+            if ($userId === null) {
+                $exCtx->stopExecution(
+                    ResponseEntity::status(HttpStatus::$UNAUTHORIZED)->withJson([
+                        'error' => 'Authentication required',
+                    ])
+                );
+                return;
+            }
+
+            $args = $exCtx->getArguments();
+            $rawId = $args[$stereo->resourceIdArg] ?? null;
+            if (!is_numeric($rawId)) {
+                self::logWarning('ABAC deny: no resource id on ' . $ctx->getMethod()->getName());
+                $exCtx->stopExecution(
+                    ResponseEntity::status(HttpStatus::$FORBIDDEN)->withJson([
+                        'error' => 'Forbidden',
+                    ])
+                );
+                return;
+            }
+
+            $env = [
+                'hour' => (int)date('G', $request->getRequestTime() ?? time()),
+                'ip' => $request->getRemoteAddr() ?? '',
+            ];
+
+            $abac = $appCtx->beanByClass(AbacService::class);
+            if (!$abac->isAllowed($userId, $stereo->resource, $stereo->action, (int)$rawId, $env)) {
+                self::logWarning(
+                    'ABAC deny: user ' . $userId . ' ' . $stereo->action
+                    . ' ' . $stereo->resource . ' ' . $rawId
+                );
+                $exCtx->stopExecution(
+                    ResponseEntity::status(HttpStatus::$FORBIDDEN)->withJson([
+                        'error' => 'Forbidden',
+                    ])
+                );
+            }
+        }
+
+        public function beginFailed(AopContext $ctx, AopExecutionContext $exCtx, Throwable $ex): void
+        {
+            self::logError('RequireAbac begin failed: ' . $ex->getMessage());
+        }
+
+        public function commit(AopContext $ctx, AopExecutionContext $exCtx, mixed $result): void {}
+
+        public function commitFailed(
+            AopContext $ctx,
+            AopExecutionContext $exCtx,
+            mixed $result,
+            Throwable $ex
+        ): void {
+            self::logError('RequireAbac commit failed: ' . $ex->getMessage());
+        }
+
+        public function failed(AopContext $ctx, AopExecutionContext $exCtx, Throwable $ex): void
+        {
+            self::logError($ctx->getMethod()->getName() . ' failed: ' . $ex->getMessage());
+        }
+    }
+    ```
+  </TabItem>
+</Tabs>
+
+<Aside type="caution">
+  The interceptor never decides — it only gathers facts and enforces the
+  verdict. All policy logic lives in `AbacServiceImpl`, so the allow/deny path
+  is unit-testable without HTTP. And as with RBAC: deny via `stopExecution()`,
+  never by throwing (a throw is a `500`, not a denial).
+</Aside>
+
+## 4. Caching policies and attributes
+
+The `#[Cacheable]` attributes are already on the readers from section 2 — here
+is the backend wiring and why ABAC caches even better than RBAC. Extend the
+RBAC guide's `CacheConfig` with two containers:
+
+```php title="config/CacheConfig.php — additions"
+#[Bean('redisCacheManager')]
+public function getRedisCacheManager(PhpRedisTemplate $redisTpl): CacheManager
+{
+    $manager = new SimpleCacheManager();
+
+    $manager->addCache(new RedisCache(
+        $redisTpl,
+        'abac-policies',
+        CacheConfiguration::get(
+            maximumSize: 1000,
+            expireAfterWriteMs: 600_000, // 10 minutes: policies change rarely
+        )
+    ));
+
+    $manager->addCache(new RedisCache(
+        $redisTpl,
+        'abac-subjects',
+        CacheConfiguration::get(
+            maximumSize: 20000,
+            expireAfterWriteMs: 300_000, // 5 minutes: profiles change more often
+        )
+    ));
+
+    return $manager;
+}
+```
+
+(`use` lines: `dev\winterframework\cache\CacheConfiguration`,
+`dev\winterframework\cache\CacheManager`,
+`dev\winterframework\cache\impl\SimpleCacheManager`,
+`dev\winterframework\data\redis\cache\RedisCache`,
+`dev\winterframework\data\redis\phpredis\PhpRedisTemplate` — same as the RBAC
+`CacheConfig`, plus the two containers.)
+
+What this buys you, per guarded request:
+
+- Policies: one Redis read for the (type, action) entry, shared by **all**
+  users — a hundred agents refunding orders share one cached policy list.
+  Writes (`savePolicy`, `setPolicyEnabled`) evict after commit, so an admin UI
+  built on `PolicyService` propagates cluster-wide with no extra code.
+- Subject facts: one Redis read per user per 5 minutes instead of a profile
+  query per request.
+- Resource facts: read live every time — one indexed primary-key lookup. Rows
+  change with the domain, so caching them would trade correctness for little:
+  the join-heavy work (policies, profiles) is already cached.
+
+<Aside type="tip">
+  When a profile changes (department transfer, clearance upgrade), evict that
+  user's `abac-subjects` entry from the same write path — a `#[CacheEvict]`
+  with the user's key on the profile-update method. Stale subject facts grant
+  the old department's powers until the TTL lapses.
+</Aside>
+
+## 5. Configuration
+
+No new infrastructure: the same `application.yml` as the [RBAC guide](/winter-boot/howto/rbac)
+(datasource with `migrations: { enabled: true }`, Redis module, `#[EnableCaching]`
+on the application class) covers ABAC. The only additions are the `003`/`004`
+migration files from section 1 — they run automatically in alphabetical order
+after the RBAC ones.
+
+## 6. What else to think about
+
+- **RBAC at the route, ABAC at the operation.** Keep the RBAC interceptor on
+  `/admin/*` and put `#[RequireAbac]` on the sensitive endpoints inside. When
+  both deny, the first one in the chain answers — order them so the cheaper
+  check (role) runs before the richer one (policy evaluation).
+- **Give policies an admin UI, not SQL.** `PolicyService::savePolicy()` and
+  `setPolicyEnabled()` are the write API — a small admin controller on top
+  turns policy rollouts into clicks instead of migrations, and every write
+  evicts correctly because the eviction lives on the service, not the caller.
+- **Audit decisions, not just denials.** Log the matched policy name with each
+  allow at debug level and each deny at warning. When a user asks "why was I
+  blocked?", the policy name is the answer — far more useful than "403".
+- **Test the policy matrix.** Minimum: no matching policy → `403`; guardrail
+  amount → `403` even for seniors; senior within guardrail → `200`; standard
+  user in hours → `200`, out of hours → `403`; wrong department → `403`;
+  unknown resource id → `403`; disable a policy → behaviour flips on the next
+  request (proves eviction).
+- **Watch the clock.** `hour` comes from the server clock — run NTP, and if
+  your users span time zones, store policy hours in UTC and convert explicitly
+  rather than using server-local time.
+- **Grow deliberately.** When JSON conditions feel cramped, add (in this
+  order): the `$owner` pattern for ownership (`{"owner_id": {"$owner": true}}`
+  already works), a `version`/`updated_at` column plus a policy-change audit
+  table, then multi-resource policies — each step reuses `isAllowed()` as the
+  funnel.
+
+## 7. Verify it works
+
+Seed an order (`id 1, owner 9, amount 50, region EU, status paid`) and walk the
+matrix with the seeded users (passwords as created in the RBAC guide):
+
+1. Log in as alice (support, clearance 5), `POST /orders/1/refund` at 10:00 → `200`.
+2. Same request at 22:00 → `403` (environment condition).
+3. Raise the order amount to 5,000, retry as alice → `403`; as bob (clearance 9) → still `403` (guardrail beats override).
+4. Lower it to 500, retry as bob → `200` (senior override skips the standard limits).
+5. Log in as carol (sales) → `403` on every refund (no policy matches her department).
+6. Disable `support-refund-standard` via `setPolicyEnabled`, retry as alice → `403` on the next request (proves eviction).
+7. Drop the cookie → `401`.
+
+If step 6 stays `200`, the policy cache is lying: confirm the attributes name
+the `redisCacheManager` bean and that `setPolicyEnabled` commits before the
+eviction fires.
+
+## Next steps
+
+- [RBAC](/winter-boot/howto/rbac) — the companion guide: roles, sessions, and the `AuthService` reused above.
+- [Caching](/winter-boot/ops/caching) — attribute options (`key`, `condition`, `unless`) and the in-memory / KV backends.
+- [AOP](/winter-boot/core/aop) — the full advice lifecycle and the runnable [AOP guard example](/winter-boot/examples/aop-app).
+- [Sessions](/winter-boot/core/request-sessions) — identity fields and store backends behind `currentUserId()`.

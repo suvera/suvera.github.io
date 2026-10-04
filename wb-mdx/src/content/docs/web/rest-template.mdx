@@ -1,0 +1,162 @@
+---
+title: "Calling Other Services with RestTemplate"
+sidebar:
+  label: "RestTemplate"
+description: "Call downstream HTTP services with Winter Boot's Spring-style RestTemplate: autowire the default bean, use URI templates, map JSON responses, and handle errors."
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+`RestTemplate` is Winter Boot's Spring-style synchronous HTTP client for calling downstream services. It is registered as a default bean, so you can inject it anywhere with `#[Autowired]` — no configuration class needed:
+
+```php title="OrderService.php"
+<?php
+
+namespace app\service;
+
+use dev\winterframework\stereotype\Service;
+use dev\winterframework\stereotype\Autowired;
+use dev\winterframework\web\client\RestTemplate;
+
+#[Service]
+class OrderService
+{
+    #[Autowired]
+    private RestTemplate $restTemplate;
+
+    public function fetchUser(int $id): array
+    {
+        return $this->restTemplate->getForObject(
+            'https://users.internal/users/{id}',
+            'array',
+            ['id' => $id]
+        );
+    }
+}
+```
+
+The bean is preconfigured from `winter.rest.*` keys (see below), but anything else — a custom `User-Agent`, basic auth, a custom transport — needs your own bean definition. Declare it in a `#[Bean]` method and yours wins: the default bean never overrides an application-defined one, so every `#[Autowired] RestTemplate` then injects yours.
+
+```php title="HttpConfig.php"
+<?php
+
+namespace app\config;
+
+use dev\winterframework\stereotype\Bean;
+use dev\winterframework\stereotype\Configuration;
+use dev\winterframework\web\client\RestTemplate;
+
+#[Configuration]
+class HttpConfig
+{
+    #[Bean]
+    public function restTemplate(): RestTemplate
+    {
+        $template = new RestTemplate(timeout: 3.0, connectTimeout: 1.0);
+        $template->setDefaultHeader('User-Agent', 'MyApp/1.0');
+        $template->setBasicAuth('user', 'secret');
+        return $template;
+    }
+}
+```
+
+## Requests
+
+Placeholders in `{braces}` are expanded from the `$uriVars` argument, and `$query` entries are merged over any query string already in the URL:
+
+```php
+$user = $this->restTemplate->getForObject(
+    'https://users.internal/users/{id}',
+    'array',
+    ['id' => 42],
+    headers: ['X-Trace' => 'abc'],
+    query: ['verbose' => true]
+);
+
+$created = $this->restTemplate->postForObject(
+    'https://users.internal/users',
+    ['name' => 'ada'] // arrays are JSON-encoded
+);
+
+$this->restTemplate->put('https://users.internal/users/{id}', ['name' => 'grace'], ['id' => 7]);
+$this->restTemplate->delete('https://users.internal/users/{id}', ['id' => 7]);
+```
+
+For full control (any method, headers plus body), use `exchange()` with an `HttpEntity`:
+
+```php
+use dev\winterframework\web\client\HttpEntity;
+
+$entity = $this->restTemplate->exchange(
+    'POST',
+    'https://users.internal/echo',
+    HttpEntity::withJsonBody(['a' => 1], ['X-Req' => 'yes'])
+);
+$status = $entity->getStatus()->getValue(); // 200
+$headers = $entity->getHeaders();           // HttpHeaders
+$body = $entity->getBody();                 // mapped per $responseType
+```
+
+`getForEntity()` / `postForEntity()` are shorthand for `exchange()` with `GET` / `POST`, and `headForHeaders()` returns the response `HttpHeaders` of a `HEAD` call.
+
+## Response mapping
+
+The `$responseType` argument controls conversion:
+
+- `'array'` (default): JSON-decoded associative array.
+- `'string'`: raw body, untouched.
+- A class name: JSON decoded, then mapped via `ObjectCreator` (honours `#[JsonProperty]`).
+
+An empty body maps to `null`.
+
+## Errors
+
+By default, 4xx responses throw `HttpClientErrorException` and 5xx throw `HttpServerErrorException` (both extend `RestClientException`, which is a `RuntimeException`). The exception carries the status code, response headers and body via getters; its message contains only the method, the query-stripped URL and the status line, so tokens in query strings or bodies never leak into logs.
+
+```php
+use dev\winterframework\web\client\HttpClientErrorException;
+
+try {
+    $this->restTemplate->getForObject('https://users.internal/users/99');
+} catch (HttpClientErrorException $ex) {
+    $ex->getStatusCode(); // 404
+}
+```
+
+To receive error responses as entities instead of exceptions, call `$restTemplate->setThrowOnError(false)` — the entity then carries the raw string body. For custom handling, `setErrorHandler()` accepts a `fn(string $method, string $url, int $status, string $body, array $headers): void` invoked for every 4xx/5xx response.
+
+## Timeouts and defaults
+
+Constructor and setter configuration:
+
+```php
+$template = new RestTemplate(timeout: 3.0, connectTimeout: 1.5);
+$template->setDefaultHeader('X-Service', 'orders');
+$template->setBasicAuth('user', 'secret');
+```
+
+Every request also sends `Accept: application/json` and a browser `User-Agent` by default (some publishers reject headerless clients with 403); override either per request or via `setDefaultHeader()`. Header names and values containing CR/LF are rejected outright.
+
+Default-bean timeouts come from `application.yml`:
+
+```yaml
+winter:
+    rest:
+        timeout: 10.0
+        connect-timeout: 5.0
+```
+
+## Transports and testing
+
+`RestTemplate` delegates I/O to a `RestClientTransport`. The default transport picks its engine at runtime: the non-blocking coroutine client inside a Swoole coroutine, cURL when available, plain PHP streams otherwise — so the same bean works from request handlers, CLI commands and tests.
+
+Unit tests should inject a fake transport instead of touching the network:
+
+```php
+$fake = new FakeTransport(); // your RestClientTransport implementation
+$template = new RestTemplate($fake);
+```
+
+<Aside type="note">
+  `RestTemplate` performs blocking I/O on the calling coroutine/thread. For fan-out calls that must overlap, dispatch them through `#[Async]` service methods rather than awaiting them one by one.
+</Aside>

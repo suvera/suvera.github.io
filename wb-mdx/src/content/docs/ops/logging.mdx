@@ -68,6 +68,27 @@ class OrderService
 }
 ```
 
+## Request Trace Logging
+
+Set `winter.web.request.enableTrace: true` in `application.yml` (default `false`) to log two `INFO` lines per HTTP exchange from the dispatcher:
+
+```yaml title="config/application.yml"
+winter:
+    web:
+        request:
+            enableTrace: true
+```
+
+```text
+TRACE START POST /api/orders
+TRACE FINISH POST /api/orders -> 200 (41.0 ms)
+```
+
+- The `START` line is emitted the instant a request reaches the dispatcher (method + URI only — no status or duration exists yet).
+- The `FINISH` line is emitted on completion, whether the request succeeded or failed (method + URI + response status + time taken).
+- A `START` line with no matching `FINISH` means the worker died mid-request — itself a useful signal.
+- Only safe metadata is logged: the URI is sanitised (control characters stripped, length capped). Headers, bodies, and query values are never logged.
+
 ## Configuration — logger.yml
 
 Create a file named `logger.yml` in the `config` directory you specify in `WinterBootApplication`. Winter Boot loads this file at startup and configures Monolog accordingly. The configuration format follows the **monolog-cascade** schema, which lets you declare loggers, handlers, formatters, and processors entirely in YAML.

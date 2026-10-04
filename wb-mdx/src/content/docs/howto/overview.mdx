@@ -1,0 +1,31 @@
+---
+title: "How-To Guides for Winter Boot Applications"
+sidebar:
+  label: "Overview"
+  order: 1
+description: "Step-by-step guides for common tasks in Winter Boot applications: RBAC, auth patterns, and more."
+---
+
+import { CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+These guides solve one concrete problem at a time — database schema, beans, configuration, and runnable code included. They assume you have already been through the [Quickstart](/winter-boot/quickstart) and know how to run a Winter Boot app.
+
+## Available guides
+
+<CardGrid>
+  <LinkCard title="RBAC" href="/winter-boot/howto/rbac" description="Implement role-based access control: schema, services, route guards, and Redis-cached permission checks." />
+
+  <LinkCard title="ABAC" href="/winter-boot/howto/abac" description="Implement attribute-based access control: policy schema, a RequireAbac guard, and globally cached policies." />
+
+  <LinkCard title="Build UI" href="/winter-boot/howto/build-ui" description="Winter Boot serves JSON by design — build the UI as a separate React/Next.js app behind a same-origin proxy." />
+
+  <LinkCard title="Email" href="/winter-boot/howto/email" description="Send templated email with Symfony Mailer: transport beans, async delivery, and failure handling." />
+
+  <LinkCard title="PDF" href="/winter-boot/howto/pdf" description="Generate PDF invoices and reports with Dompdf: service beans, templates, and download endpoints." />
+
+  <LinkCard title="Images" href="/winter-boot/howto/images" description="Process uploads in a background worker with ImageMagick: thumbnails, WebP, and job tracking." />
+
+  <LinkCard title="Gemini AI" href="/winter-boot/howto/gemini" description="Call Google Gemini with the built-in RestTemplate: service, endpoint, quotas, and caching." />
+</CardGrid>
+
+More guides will be added here over time. Each one follows the same layout: the problem, the schema or configuration it needs, the beans that implement it, and how to verify it works.

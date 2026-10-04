@@ -1,0 +1,243 @@
+---
+title: "Generate PDFs in Winter Boot"
+sidebar:
+  label: "PDF"
+  order: 6
+description: "Generate PDF invoices and reports in a Winter Boot app with Dompdf: service beans, templates, and download endpoints."
+---
+
+import { Aside, Card, CardGrid, Tabs, TabItem } from '@astrojs/starlight/components';
+
+Invoices, receipts, and reports usually leave the system as PDFs. The highly recommended pure-PHP library for this is [Dompdf](https://github.com/dompdf/dompdf) (`dompdf/dompdf`): it renders HTML/CSS to PDF with no binary dependencies, which makes HTML templates do double duty for email and print. This guide wires it as beans — an `Options` bean, a `PdfService`, a template, and a download endpoint.
+
+## 1. Install
+
+```bash
+composer require dompdf/dompdf
+```
+
+No module or `application.yml` entry is needed — the few knobs Dompdf has live in the `Options` bean below.
+
+## 2. Beans, template, and download endpoint
+
+Four files. The controller streams the bytes with `application/pdf` and a download filename; the service renders HTML (shared template style with the [Email guide](/winter-boot/howto/email)); the config locks down fonts, temp files, and remote access. Switch between them:
+
+<Tabs>
+  <TabItem label="rest/InvoiceController.php">
+    The download endpoint — start here. PDF bytes go out as a raw string body
+    with `MediaType::APPLICATION_PDF`; the filename is built from the integer
+    id only, never from user input.
+
+    ```php
+    <?php
+    declare(strict_types=1);
+
+    namespace dev\example\rest;
+
+    use dev\example\service\PdfService;
+    use dev\winterframework\stereotype\Autowired;
+    use dev\winterframework\stereotype\RestController;
+    use dev\winterframework\stereotype\web\GetMapping;
+    use dev\winterframework\stereotype\web\PathVariable;
+    use dev\winterframework\stereotype\web\RequestMapping;
+    use dev\winterframework\web\http\ResponseEntity;
+    use dev\winterframework\web\MediaType;
+
+    #[RestController]
+    #[RequestMapping(path: 'invoices')]
+    class InvoiceController
+    {
+        #[Autowired]
+        protected PdfService $pdfs;
+
+        #[GetMapping(path: '{id}/pdf')]
+        public function downloadInvoice(#[PathVariable(name: 'id')] int $id): ResponseEntity
+        {
+            $pdf = $this->pdfs->renderInvoice($id);
+
+            return ResponseEntity::ok($pdf)
+                ->withContentType(MediaType::APPLICATION_PDF)
+                ->withContentLength(strlen($pdf))
+                ->withHeader('Content-Disposition', 'attachment; filename="invoice-' . $id . '.pdf"');
+        }
+    }
+    ```
+  </TabItem>
+
+  <TabItem label="service/PdfService.php">
+    The renderer. Builds the HTML from a template, renders it, stamps page
+    numbers, and returns raw bytes. Uses `output()` — never `stream()`, which
+    echoes and exits and has no place in a long-running Swoole worker.
+
+    ```php
+    <?php
+    declare(strict_types=1);
+
+    namespace dev\example\service;
+
+    use dev\winterframework\pdbc\PdbcTemplate;
+    use dev\winterframework\pdbc\ex\EmptyResultDataAccessException;
+    use dev\winterframework\stereotype\Autowired;
+    use dev\winterframework\stereotype\Service;
+    use dev\winterframework\stereotype\Value;
+    use Dompdf\Dompdf;
+    use Dompdf\Options;
+
+    #[Service]
+    class PdfService
+    {
+        #[Autowired]
+        protected PdbcTemplate $pdbc;
+
+        #[Autowired]
+        protected Options $pdfOptions;
+
+        #[Value('${pdf.templates}')]
+        protected string $templateDir;
+
+        /** @throws EmptyResultDataAccessException when the invoice does not exist */
+        public function renderInvoice(int $invoiceId): string
+        {
+            $row = $this->pdbc->queryForMap(
+                'SELECT id, customer_name, amount, issued_at FROM invoices WHERE id = ?',
+                [$invoiceId]
+            );
+            return $this->renderTemplate('invoice.php', ['invoice' => $row]);
+        }
+
+        public function renderTemplate(string $template, array $vars): string
+        {
+            extract($vars, EXTR_SKIP);
+            ob_start();
+            include $this->templateDir . '/' . basename($template); // basename blocks ../ traversal
+            $html = (string)ob_get_clean();
+
+            return $this->generate($html);
+        }
+
+        public function generate(string $html, string $paper = 'A4'): string
+        {
+            $dompdf = new Dompdf($this->pdfOptions);
+            $dompdf->loadHtml($html);
+            $dompdf->setPaper($paper);
+            $dompdf->render();
+
+            $canvas = $dompdf->getCanvas();
+            $canvas->page_text(500, 820, 'Page {PAGE_NUM} of {PAGE_COUNT}', null, 10, [0, 0, 0]);
+
+            return $dompdf->output();
+        }
+    }
+    ```
+  </TabItem>
+
+  <TabItem label="config/PdfConfig.php">
+    Sane, locked-down defaults. Remote URLs stay disabled (templates must not
+    fetch the network at render time), DejaVu covers non-Latin names, and temp
+    files go to the system temp dir.
+
+    ```php
+    <?php
+    declare(strict_types=1);
+
+    namespace dev\example\config;
+
+    use dev\winterframework\stereotype\Bean;
+    use dev\winterframework\stereotype\Configuration;
+    use Dompdf\Options;
+
+    #[Configuration]
+    class PdfConfig
+    {
+        #[Bean]
+        public function pdfOptions(): Options
+        {
+            $options = new Options();
+            $options->set('defaultFont', 'DejaVu Sans');
+            $options->set('isRemoteEnabled', false); // no http(s) in templates: SSRF-safe
+            $options->set('tempDir', sys_get_temp_dir());
+            return $options;
+        }
+    }
+    ```
+  </TabItem>
+
+  <TabItem label="templates/invoice.php">
+    Invoices are HTML with print CSS: `@page` margins, inline styles (mail
+    clients and Dompdf both ignore external stylesheets), escaped output.
+
+    ```php
+    <html>
+    <head>
+      <style>
+        @page { margin: 60px 40px; }
+        body { font-family: DejaVu Sans, sans-serif; }
+        table { width: 100%; border-collapse: collapse; }
+        td, th { border: 1px solid #999; padding: 6px; }
+      </style>
+    </head>
+    <body>
+      <h1>Invoice #<?= (int)$invoice['id'] ?></h1>
+      <p>Customer: <?= htmlspecialchars($invoice['customer_name'] ?? '') ?></p>
+      <table>
+        <tr><th>Description</th><th>Amount</th></tr>
+        <tr><td>Services rendered</td><td><?= htmlspecialchars((string)($invoice['amount'] ?? '')) ?></td></tr>
+      </table>
+    </body>
+    </html>
+    ```
+  </TabItem>
+</Tabs>
+
+Add the template directory to `application.yml` (with `EnvPropertySource`
+registered — see [Configuration](/winter-boot/configuration)):
+
+```yaml title="config/application.yml — additions"
+pdf:
+    templates: "templates/pdf"
+```
+
+## 3. Async and bulk generation
+
+One invoice renders in milliseconds — keep it synchronous in the request. For
+bulk work (month-end statements for ten thousand customers), generate in the
+background: an `#[Async]` method (needs `#[EnableAsync]` — see the
+[Email guide](/winter-boot/howto/email)) that renders and stores each PDF
+(local disk, S3 via the [S3 module](/winter-boot/modules/s3)), or a
+[scheduled job](/winter-boot/async/scheduling) draining a queue. Never render
+bulk PDFs inside request handlers — Dompdf is CPU- and memory-hungry on large
+tables, and one big export will starve the worker pool.
+
+## 4. What else to think about
+
+- **Guard the endpoint.** An invoice URL is a data leak shaped like a feature.
+  Put `#[RequirePermission](/winter-boot/howto/rbac)` (or
+  [`#[RequireAbac]](/winter-boot/howto/abac) with an ownership rule) on the
+  download method, and return `404` — not `403` — for invoices outside the
+  caller's scope, so ids cannot be probed.
+- **Confine file access.** If templates reference local images, also
+  `$options->set('chroot', $yourBaseDir)` so a template path can never escape
+  the intended directory.
+- **Fonts.** DejaVu ships with Dompdf and covers Latin, Cyrillic, Greek, and
+  much more. For CJK or custom brand fonts, register them once with
+  `load_font.php` and reference the family name in CSS.
+- **Cache static documents.** A regenerated-identical PDF (terms of service,
+  fee schedules) can sit behind `#[Cacheable]` like any other bean result —
+  see [Caching](/winter-boot/ops/caching). Per-customer documents must not be
+  shared across cache keys.
+- **Test the bytes.** Assert the response starts with `%PDF-` and has a sane
+  length — that catches template fatals and empty renders without parsing PDF.
+
+## 5. Verify it works
+
+1. Seed an invoice row and hit `GET /invoices/1/pdf`.
+2. Expect `200`, `Content-Type: application/pdf`, and a download prompt for `invoice-1.pdf`.
+3. Save the body and check the first five bytes are `%PDF-`.
+4. Request a missing id → the query throws and the error controller answers (never a half-written PDF).
+
+## Next steps
+
+- [Email](/winter-boot/howto/email) — the same templates rendered for mail, plus async delivery.
+- [RBAC](/winter-boot/howto/rbac) / [ABAC](/winter-boot/howto/abac) — guarding the download endpoint.
+- [Caching](/winter-boot/ops/caching) — caching reusable documents.
+- [REST controllers](/winter-boot/web/rest-controllers) — response shapes and binary bodies.

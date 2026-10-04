@@ -1,0 +1,428 @@
+---
+title: "Image Processing Worker with ImageMagick in Winter Boot"
+sidebar:
+  label: "Images"
+  order: 7
+description: "Resize, convert, and thumbnail uploads in a Winter Boot background worker with ImageMagick (and where GD fits)."
+---
+
+import { Aside, Card, CardGrid, Tabs, TabItem } from '@astrojs/starlight/components';
+
+User uploads need variants: a small thumbnail, a display-size image, a modern format — and none of that work belongs in the request. This guide builds an upload endpoint that stores the original and enqueues a job message, plus an SQS-backed worker that generates the variants with [ImageMagick](https://imagemagick.org/) via the PHP `imagick` extension. Consumers start automatically with the app — no separate worker process to launch.
+
+This guide processes images with **ImageMagick** via the PHP `imagick` extension. (PHP's **GD** extension can also do image work and is fine to substitute — the pipeline below stays the same.)
+
+Prerequisites: the extension and the underlying binaries (check with `php -m | grep imagick`), the Winter SQS module, and a queue to talk to:
+
+```bash
+sudo apt install imagemagick libmagickwand-dev
+pecl install imagick
+# then enable extension=imagick.so in php.ini
+
+composer require suvera/winter-boot suvera/winter-modules
+```
+
+For local development, run [ElasticMQ](https://github.com/softwaremill/elasticmq), an SQS-compatible emulator — no AWS account needed:
+
+```bash
+docker run -d -p 30932:9324 softwaremill/elasticmq-native
+aws sqs create-queue --queue-name media-jobs \
+    --endpoint-url http://localhost:30932 --region elasticmq
+```
+
+## 1. The pipeline
+
+```
+POST /media ──► store original, insert job (pending),
+                send {jobId} to SQS, return 202 + job id
+                              │
+SQS consumer (auto-started) ──┘──► validate → variants → mark done (or failed)
+GET /media/{id} ──► job status + variant paths
+```
+
+Requests stay fast (store + insert + send); all pixel work happens in consumer workers where CPU time and memory don't block request handling. The queue also absorbs spikes — a hundred simultaneous uploads become a hundred messages, processed at `workerNum` concurrency instead of thundering the image library at once.
+
+## 2. Schema, upload, and worker
+
+Four files: the tracking table, the controller that accepts uploads and enqueues jobs, the consumer that the SQS workers run, and the service that processes pixels. Switch between them:
+
+<Tabs>
+  <TabItem label="rest/MediaController.php">
+    The boundary — start here. Accepts one file field, rejects anything that
+    is not a clean upload, stores it under a random name (nothing of the
+    client filename survives), records the job, and sends its id to the queue.
+
+    ```php
+    <?php
+    declare(strict_types=1);
+
+    namespace dev\example\rest;
+
+    use dev\winterframework\pdbc\PdbcTemplate;
+    use dev\winterframework\pdbc\ex\EmptyResultDataAccessException;
+    use dev\winterframework\sqs\SqsService;
+    use dev\winterframework\stereotype\Autowired;
+    use dev\winterframework\stereotype\RestController;
+    use dev\winterframework\stereotype\Value;
+    use dev\winterframework\stereotype\web\GetMapping;
+    use dev\winterframework\stereotype\web\PathVariable;
+    use dev\winterframework\stereotype\web\PostMapping;
+    use dev\winterframework\stereotype\web\RequestMapping;
+    use dev\winterframework\web\http\HttpRequest;
+    use dev\winterframework\web\http\HttpUploadedFile;
+    use dev\winterframework\web\http\ResponseEntity;
+
+    #[RestController]
+    #[RequestMapping(path: 'media')]
+    class MediaController
+    {
+        #[Autowired]
+        protected PdbcTemplate $pdbc;
+
+        #[Autowired]
+        protected SqsService $sqs;
+
+        #[Value('${media.inbox}')]
+        protected string $inboxDir;
+
+        #[Value('${media.maxBytes}')]
+        protected int $maxBytes;
+
+        #[PostMapping(path: 'upload')]
+        public function upload(HttpRequest $req): ResponseEntity
+        {
+            $file = $req->getFile('image');
+            if (!$file instanceof HttpUploadedFile || $file->getError() !== UPLOAD_ERR_OK) {
+                return ResponseEntity::badRequest()->withJson(['error' => 'No image uploaded']);
+            }
+            if ($file->getSize() > $this->maxBytes) {
+                return ResponseEntity::badRequest()->withJson(['error' => 'File too large']);
+            }
+
+            $stored = bin2hex(random_bytes(16)); // random id: client name never touches disk
+            rename($file->getFilePath(), $this->inboxDir . '/' . $stored);
+
+            $this->pdbc->update(
+                'INSERT INTO media_jobs (source_name, status) VALUES (?, ?)',
+                [$stored, 'pending']
+            );
+            // source_name is random-unique, so reading the id back is exact
+            $jobId = (int)$this->pdbc->queryForScalar(
+                'SELECT id FROM media_jobs WHERE source_name = ?',
+                [$stored]
+            );
+
+            $this->sqs->send('primary', 'media-jobs', ['jobId' => $jobId]);
+
+            return ResponseEntity::accepted()->withJson(['success' => true, 'data' => ['jobId' => $jobId]]);
+        }
+
+        #[GetMapping(path: '{id}')]
+        public function status(#[PathVariable(name: 'id')] int $id): ResponseEntity
+        {
+            try {
+                $row = $this->pdbc->queryForMap(
+                    'SELECT id, status, variants, error FROM media_jobs WHERE id = ?',
+                    [$id]
+                );
+            } catch (EmptyResultDataAccessException $e) {
+                return ResponseEntity::notFound()->build();
+            }
+            return ResponseEntity::ok([
+                'success' => true,
+                'data' => [
+                    'jobId' => (int)$row['id'],
+                    'status' => $row['status'],
+                    'variants' => json_decode((string)$row['variants'], true) ?? [],
+                    'error' => $row['error'],
+                ],
+            ]);
+        }
+    }
+    ```
+  </TabItem>
+
+  <TabItem label="service/ImageService.php">
+    The pixel work. Called by the consumer below — never by the controller.
+    Validates the file is a real image within pixel budgets *before* the
+    expensive decode (decompression bombs are real), then writes the variants,
+    strips metadata, and records the outcome. Any failure marks the job failed
+    with a logged cause — jobs never sit in `pending` forever.
+
+    ```php
+    <?php
+    declare(strict_types=1);
+
+    namespace dev\example\service;
+
+    use dev\winterframework\pdbc\PdbcTemplate;
+    use dev\winterframework\stereotype\Autowired;
+    use dev\winterframework\stereotype\Service;
+    use dev\winterframework\stereotype\Value;
+    use dev\winterframework\util\log\Wlf4p;
+    use Imagick;
+    use Throwable;
+
+    #[Service]
+    class ImageService
+    {
+        use Wlf4p;
+
+        #[Autowired]
+        protected PdbcTemplate $pdbc;
+
+        #[Value('${media.inbox}')]
+        protected string $inboxDir;
+
+        #[Value('${media.variants}')]
+        protected string $variantsDir;
+
+        #[Value('${media.maxPixels}')]
+        protected int $maxPixels;
+
+        public function processJob(int $jobId): void
+        {
+            try {
+                $variants = $this->process($jobId);
+                $this->pdbc->update(
+                    'UPDATE media_jobs SET status = ?, variants = ? WHERE id = ?',
+                    ['done', json_encode($variants), $jobId]
+                );
+            } catch (Throwable $e) {
+                self::logEx($e, 'Image job failed: ' . $jobId);
+                $this->pdbc->update(
+                    'UPDATE media_jobs SET status = ?, error = ? WHERE id = ?',
+                    ['failed', 'processing failed', $jobId] // generic message: no paths leak
+                );
+            }
+        }
+
+        /** @return array<string, string> variant name → relative path */
+        public function process(int $jobId): array
+        {
+            $source = $this->inboxDir . '/' . $this->sourceName($jobId);
+
+            $probe = new Imagick();
+            $probe->pingImage($source); // metadata only: cheap pre-check
+            $w = $probe->getImageWidth();
+            $h = $probe->getImageHeight();
+            $probe->clear();
+            if ($w <= 0 || $h <= 0 || ($w * $h) > $this->maxPixels) {
+                throw new \RuntimeException('Image dimensions rejected');
+            }
+
+            $out = [];
+            $out['thumb'] = $this->variant($source, $jobId, 'thumb', 256, 256, true);
+            $out['medium'] = $this->variant($source, $jobId, 'medium', 1024, 1024, false);
+            $out['medium_webp'] = $this->variant($source, $jobId, 'medium', 1024, 1024, false, 'webp');
+            return $out;
+        }
+
+        private function variant(
+            string $source,
+            int $jobId,
+            string $kind,
+            int $w,
+            int $h,
+            bool $crop,
+            string $format = 'jpg'
+        ): string {
+            $img = new Imagick($source);
+            if ($crop) {
+                $img->cropThumbnailImage($w, $h);
+            } else {
+                $img->resizeImage($w, $h, Imagick::FILTER_LANCZOS, 1, true); // bestfit: keeps ratio
+            }
+            $img->setImageFormat($format);
+            $img->setImageCompressionQuality($format === 'webp' ? 82 : 85);
+            $img->stripImage(); // drop EXIF/GPS: smaller files, no location leaks
+
+            $name = $jobId . '-' . $kind . '.' . $format;
+            $img->writeImage($this->variantsDir . '/' . $name);
+            $img->clear();
+            return $name;
+        }
+
+        private function sourceName(int $jobId): string
+        {
+            $name = $this->pdbc->queryForScalar(
+                'SELECT source_name FROM media_jobs WHERE id = ?',
+                [$jobId]
+            );
+            return basename((string)$name); // never let a row steer the path
+        }
+    }
+    ```
+  </TabItem>
+
+  <TabItem label="consumer/ImageProcessConsumer.php">
+    The worker the SQS processes run. It extends `AbstractConsumer`, so the
+    framework instantiates it auto-wired (`#[Autowired]` works) and deletes
+    each message after `consume()` returns. Malformed messages are logged and
+    skipped — returning normally deletes them instead of redelivering poison
+    forever.
+
+    ```php
+    <?php
+    declare(strict_types=1);
+
+    namespace dev\example\consumer;
+
+    use dev\example\service\ImageService;
+    use dev\winterframework\sqs\consumer\AbstractConsumer;
+    use dev\winterframework\sqs\consumer\ConsumerRecord;
+    use dev\winterframework\sqs\consumer\ConsumerRecords;
+    use dev\winterframework\stereotype\Autowired;
+
+    class ImageProcessConsumer extends AbstractConsumer
+    {
+        #[Autowired]
+        protected ImageService $images;
+
+        public function consume(ConsumerRecords $records): void
+        {
+            foreach ($records as $record) {
+                /** @var ConsumerRecord $record */
+                $payload = json_decode((string)$record->getBody(), true);
+                $jobId = is_array($payload) ? (int)($payload['jobId'] ?? 0) : 0;
+
+                if ($jobId <= 0) {
+                    self::logWarning('Skipping malformed message ' . $record->getMessageId());
+                    continue;
+                }
+
+                $this->images->processJob($jobId);
+                self::logInfo('Processed image job ' . $jobId);
+            }
+        }
+    }
+    ```
+  </TabItem>
+
+  <TabItem label="005-media.sql">
+    Job tracking. `source_name` holds the random inbox id; `variants` holds
+    the finished file map as JSON; `error` stays a generic message.
+
+    ```sql
+    CREATE TABLE media_jobs (
+        id BIGINT NOT NULL PRIMARY KEY AUTO_INCREMENT,
+        source_name VARCHAR(64) NOT NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'pending',
+        variants JSON,
+        error VARCHAR(500) NOT NULL DEFAULT '',
+        created_at BIGINT NOT NULL DEFAULT 0
+    );
+
+    CREATE INDEX idx_media_status ON media_jobs (status);
+    ```
+  </TabItem>
+</Tabs>
+
+Configuration for the directories and budgets (with `EnvPropertySource`
+registered — see [Configuration](/winter-boot/configuration)):
+
+```yaml title="config/application.yml — additions"
+media:
+    inbox: "/var/app/media/inbox"
+    variants: "/var/app/media/variants"
+    maxBytes: 10485760      # 10 MiB upload cap
+    maxPixels: 25000000     # ~25 MP decode cap: decompression-bomb guard
+```
+
+## 3. Queue configuration
+
+Register the SQS module and point a consumer at `media-jobs`. The consumer
+workers start polling as soon as the app boots — nothing else to launch.
+Switch between the two files:
+
+<Tabs>
+  <TabItem label="config/application.yml — additions">
+    Enable `SqsModule` next to the datasource and `media:` keys in the same file:
+
+    ```yaml
+    modules:
+        -
+            module: dev\winterframework\sqs\SqsModule
+            enabled: true
+            configFile: sqs-config.yml
+    ```
+  </TabItem>
+
+  <TabItem label="config/sqs-config.yml">
+    A `primary` connection (ElasticMQ locally, IAM role or keys on AWS) and
+    one consumer. Two workers handle two images at once; raise `workerNum`
+    with CPU headroom. `visibilityTimeout` must exceed your slowest image —
+    300 seconds here — or a long render gets redelivered mid-work.
+
+    ```yaml
+    sqs:
+        connections:
+            -   name: primary
+                region: elasticmq
+                credentials:
+                    key: dummy
+                    secret: dummy
+                endpoint: http://localhost:30932
+
+        consumers:
+            -   name: media-jobs-consumer
+                connection: primary
+                queueName: media-jobs
+                workerNum: 2
+                workerClass: dev\example\consumer\ImageProcessConsumer
+                waitTimeSeconds: 5
+                maxNumberOfMessages: 5
+                visibilityTimeout: 300
+                pollIntervalMs: 500
+    ```
+
+    See the [SQS module](/winter-boot/modules/sqs) and the runnable
+    [SQS consumer example](/winter-boot/examples/sqs-consumer) for every
+    connection and consumer property.
+  </TabItem>
+</Tabs>
+
+## 4. Serve and clean up
+
+- Serve `variants/` as static files from Nginx/CDN — Swoole should not spend
+  worker time on bytes Nginx serves better. A controller download (like the
+  [PDF guide](/winter-boot/howto/pdf)) fits only access-controlled originals.
+- Delete the inbox original after success (or archive it if reprocessing
+  matters) — disk fills silently otherwise. A
+  [scheduled sweep](/winter-boot/async/scheduling) deleting `done` rows older
+  than N days plus orphaned files keeps both tidy.
+- Retry policy: the worker marks `failed` once and the message is gone. A
+  sweeper resetting `failed` jobs to `pending` and re-sending their ids to
+  `media-jobs` (with an attempts cap) covers transient ImageMagick crashes;
+  permanent rejects (bad dimensions) must stay failed.
+
+## 5. What else to think about
+
+- **Validate twice.** The controller checks size and upload errors; the worker
+  re-validates content (`pingImage` + pixel budget). Either layer alone is
+  bypassable — together, malformed uploads die before pixels are decoded.
+- **Random names everywhere.** Client filenames carry traversal (`../../`),
+  collisions, and encoding quirks. `random_bytes()` ids plus `basename()` on
+  every read keep paths inside your directories.
+- **Strip metadata by default.** Phone photos embed GPS — `stripImage()` on
+  every public variant. Keep the original's EXIF only if a feature (e.g. photo
+  maps) explicitly needs it.
+- **Memory.** Imagick decodes to bitmaps: a 25 MP image needs hundreds of MB
+  transiently. Size worker memory accordingly and keep `maxPixels` honest.
+
+## 6. Verify it works
+
+1. Start ElasticMQ, create the `media-jobs` queue, and boot the app — the consumer logs that it started polling.
+2. `curl -F image=@photo.jpg http://127.0.0.1:8080/media/upload` → `202` with a `jobId`.
+3. Poll `GET /media/{jobId}` → `pending`, then `done` with three variant names.
+4. Open the variants: 256px square thumb, ratio-kept medium JPEG, WebP copy.
+5. Upload a text file renamed to `.jpg` → job goes `failed`, app stays up, error stays generic.
+6. Upload a 50 MP panorama → rejected by the pixel budget before decode.
+
+## Next steps
+
+- [SQS consumer example](/winter-boot/examples/sqs-consumer) — the full runnable queue app this worker follows.
+- [SQS module](/winter-boot/modules/sqs) — producer APIs, IAM roles, and consumer tuning.
+- [PDF](/winter-boot/howto/pdf) — serving generated files from a controller.
+- [Scheduling](/winter-boot/async/scheduling) — cleanup and retry sweepers.
+- [REST controllers](/winter-boot/web/rest-controllers) — upload and status shapes.

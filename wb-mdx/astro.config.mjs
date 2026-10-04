@@ -68,6 +68,7 @@ export default defineConfig({
                 { label: 'Utilities', items: [{ autogenerate: { directory: 'advanced' } }] },
                 { label: 'Modules', items: [{ autogenerate: { directory: 'modules' } }] },
                 { label: 'Examples', items: [{ autogenerate: { directory: 'examples' } }] },
+                { label: 'How To', items: [{ autogenerate: { directory: 'howto' } }] },
                 {
                     label: 'Reference',
                     items: [{ autogenerate: { directory: 'reference' } }],

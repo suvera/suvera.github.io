@@ -34,6 +34,12 @@ winter:
         name: "My Winter App"
         id: MyApp
         version: 1.0.0
+    web:
+        request:
+            enableTrace: true
+    rest:
+        timeout: 10.0
+        connect-timeout: 5.0
     namespaces:
         cacheTime: 10
     route:
@@ -41,6 +47,9 @@ winter:
 ```
 
 - `application.name`, `application.id`, `application.version`: identity used in logs and actuator.
+- `web.request.enableTrace`: when `true`, logs a `TRACE START` line on request arrival and a `TRACE FINISH` line (method, URI, response status, time taken) on completion. Default `false`. Documented in [Logging](/winter-boot/ops/logging).
+- `rest.timeout`: overall RestTemplate request timeout in seconds. Default `10.0`. Documented in [RestTemplate](/winter-boot/web/rest-template).
+- `rest.connect-timeout`: RestTemplate connect timeout in seconds. Default `5.0`. Documented in [RestTemplate](/winter-boot/web/rest-template).
 - `namespaces.cacheTime`: how long reflection scan results are cached.
 - `route.cacheTime`: how long route mappings are cached.
 

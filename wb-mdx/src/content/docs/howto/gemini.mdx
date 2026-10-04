@@ -1,0 +1,202 @@
+---
+title: "Call Google Gemini AI in Winter Boot"
+sidebar:
+  label: "Gemini AI"
+  order: 8
+description: "Connect a Winter Boot app to Google Gemini: summarisation and Q&A over the REST API."
+---
+
+import { Aside, Card, CardGrid, Tabs, TabItem } from '@astrojs/starlight/components';
+
+Adding AI features — summarising tickets, drafting replies, classifying feedback — means calling Google's Gemini API. This guide calls the `generateContent` REST endpoint with Winter Boot's built-in [`RestTemplate`](/winter-boot/web/rest-template): no extra packages, and error messages that strip query strings (which is where the API key travels, as `?key=`).
+
+## 1. Prerequisites
+
+Get a key from [Google AI Studio](https://aistudio.google.com/) and keep it in the environment:
+
+```bash
+GEMINI_API_KEY="AIza..."
+```
+
+## 2. Configuration
+
+Model and key as ordinary properties (with `EnvPropertySource` registered — see [Configuration](/winter-boot/configuration)):
+
+```yaml title="config/application.yml — additions"
+gemini:
+    apiKey: "$env.GEMINI_API_KEY"
+    model: "gemini-2.0-flash"
+```
+
+## 3. Service and endpoint
+
+Two files: a service owning the API call (dedicated long-timeout client, response parsing, status mapping) and a thin controller. Switch between them:
+
+<Tabs>
+  <TabItem label="rest/AssistController.php">
+    The endpoint — start here. Takes a prompt, returns the answer text, and
+    maps AI failures to generic statuses (never forwards provider errors or
+    keys to the browser).
+
+    ```php
+    <?php
+    declare(strict_types=1);
+
+    namespace dev\example\rest;
+
+    use dev\example\service\GeminiService;
+    use dev\example\service\GeminiException;
+    use dev\winterframework\stereotype\Autowired;
+    use dev\winterframework\stereotype\RestController;
+    use dev\winterframework\stereotype\web\PostMapping;
+    use dev\winterframework\stereotype\web\RequestMapping;
+    use dev\winterframework\stereotype\web\RequestParam;
+    use dev\winterframework\web\http\HttpStatus;
+    use dev\winterframework\web\http\ResponseEntity;
+
+    #[RestController]
+    #[RequestMapping(path: 'assist')]
+    class AssistController
+    {
+        #[Autowired]
+        protected GeminiService $gemini;
+
+        #[PostMapping(path: 'ask')]
+        public function ask(#[RequestParam(name: 'prompt')] string $prompt): ResponseEntity
+        {
+            $prompt = trim($prompt);
+            if ($prompt === '' || strlen($prompt) > 4000) {
+                return ResponseEntity::badRequest()->withJson(['error' => 'Prompt required (max 4000 chars)']);
+            }
+
+            try {
+                $answer = $this->gemini->ask($prompt);
+            } catch (GeminiException $e) {
+                return ResponseEntity::status(HttpStatus::getStatus($e->getHttpStatus()))
+                    ->withJson(['error' => $e->getPublicMessage()]);
+            }
+
+            return ResponseEntity::ok(['success' => true, 'data' => ['answer' => $answer]]);
+        }
+    }
+    ```
+  </TabItem>
+
+  <TabItem label="service/GeminiService.php">
+    The integration. Posts `generateContent` with the key as a query param,
+    extracts the first text part, and converts every failure into a
+    `GeminiException` carrying an HTTP status plus a browser-safe message.
+
+    ```php
+    <?php
+    declare(strict_types=1);
+
+    namespace dev\example\service;
+
+    use dev\winterframework\stereotype\Service;
+    use dev\winterframework\stereotype\Value;
+    use dev\winterframework\web\client\HttpClientErrorException;
+    use dev\winterframework\web\client\RestClientException;
+    use dev\winterframework\web\client\RestTemplate;
+
+    #[Service]
+    class GeminiService
+    {
+        private RestTemplate $http;
+
+        #[Value('${gemini.apiKey}')]
+        protected string $apiKey;
+
+        #[Value('${gemini.model}')]
+        protected string $model;
+
+        public function __construct()
+        {
+            // Dedicated client: token generation outlasts the default 10s bean.
+            $this->http = new RestTemplate(timeout: 60.0, connectTimeout: 10.0);
+        }
+
+        public function ask(string $prompt): string
+        {
+            try {
+                $data = $this->http->postForObject(
+                    'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent',
+                    [
+                        'contents' => [['parts' => [['text' => $prompt]]]],
+                        'generationConfig' => ['temperature' => 0.2, 'maxOutputTokens' => 512],
+                    ],
+                    'array',
+                    ['model' => $this->model],
+                    [],
+                    ['key' => $this->apiKey]
+                );
+            } catch (HttpClientErrorException $e) {
+                // 400 bad key/model, 429 quota, 403 blocked — key itself never in the message
+                if ($e->getStatusCode() === 429) {
+                    throw new GeminiException(503, 'AI quota exceeded, try again later.');
+                }
+                throw new GeminiException(502, 'AI request rejected.');
+            } catch (RestClientException $e) {
+                throw new GeminiException(503, 'AI service unavailable.');
+            }
+
+            $text = is_array($data)
+                ? ($data['candidates'][0]['content']['parts'][0]['text'] ?? null)
+                : null;
+            if (!is_string($text) || trim($text) === '') {
+                throw new GeminiException(502, 'AI returned no answer.');
+            }
+            return $text;
+        }
+    }
+    ```
+
+    ```php title="service/GeminiException.php"
+    <?php
+    declare(strict_types=1);
+
+    namespace dev\example\service;
+
+    use RuntimeException;
+
+    class GeminiException extends RuntimeException
+    {
+        public function __construct(
+            private int $httpStatus,
+            private string $publicMessage,
+        ) {
+            parent::__construct($publicMessage);
+        }
+
+        public function getHttpStatus(): int
+        {
+            return $this->httpStatus;
+        }
+
+        public function getPublicMessage(): string
+        {
+            return $this->publicMessage;
+        }
+    }
+    ```
+  </TabItem>
+</Tabs>
+
+<Aside type="note">
+  `HttpStatus::getStatus()` maps an integer to the enum (used the same way by
+  `withStatusCode()`), so the controller translates the exception's status
+  without branching.
+</Aside>
+
+## 4. Verify it works
+
+1. Set `GEMINI_API_KEY` and boot the app.
+2. `curl -X POST 'http://127.0.0.1:8080/assist/ask?prompt=Summarise+this+in+five+words%3A+the+cat+sat+on+the+mat'` → `200` with an answer.
+3. Unset the key and retry → `502` with `AI request rejected.` and no key material in logs or response.
+4. Unit-test `ask()` with a fake `RestClientTransport` returning canned JSON (the [RestTemplate](/winter-boot/web/rest-template) testing pattern) — no network in tests.
+
+## Next steps
+
+- [RestTemplate](/winter-boot/web/rest-template) — URI templates, response mapping, transports, and fake-transport tests.
+- [Caching](/winter-boot/ops/caching) — caching repeated answers.
+- [Email](/winter-boot/howto/email) / [Images](/winter-boot/howto/images) — async and queue patterns for slow work.
