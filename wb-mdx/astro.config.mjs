@@ -12,6 +12,33 @@ export default defineConfig({
 
     outDir: '../winter-boot',
 
+    build: {
+        // Keep styles in the shared, cached _astro/*.css file instead of
+        // repeating ~8 KB of identical inline <style> on every page.
+        inlineStylesheets: 'never',
+    },
+
+    vite: {
+        build: {
+            rolldownOptions: {
+                // Silence known upstream noise: Astro injects a
+                // "use astro:head-inject" marker into every content page's
+                // propagated-assets module and Rolldown warns about it.
+                // See https://github.com/withastro/astro/issues/18087
+                onLog(level, log, defaultHandler) {
+                    if (
+                        log.code === 'MODULE_LEVEL_DIRECTIVE' &&
+                        typeof log.message === 'string' &&
+                        log.message.includes('use astro:head-inject')
+                    ) {
+                        return;
+                    }
+                    defaultHandler(level, log);
+                },
+            },
+        },
+    },
+
     integrations: [
         starlight({
             title: 'Winter Boot: PHP Microservices Framework',
