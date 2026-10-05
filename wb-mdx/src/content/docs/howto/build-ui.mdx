@@ -19,7 +19,7 @@ browser ── static files (CDN / Nginx) ──► your SPA (React, Next.js, �
 ```
 
 One origin serves both the static bundle and the API (the proxy forwards
-`/api/*` to the Swoole port). Same-origin means no CORS configuration, and the
+`/api/*` to the app port). Same-origin means no CORS configuration, and the
 session cookie from the [RBAC guide](/winter-boot/howto/rbac) just works. The
 framework ships no CORS module, so treat cross-origin browser calls as a
 problem to avoid, not to solve.
@@ -195,7 +195,7 @@ or Svelte:
 
   <TabItem label="vite.config.js">
     Dev-only proxy: the browser calls `/api/*` on the Vite origin, Vite
-    forwards to Swoole. No CORS headers needed anywhere.
+    forwards to the app. No CORS headers needed anywhere.
 
     ```js
     import { defineConfig } from 'vite';
@@ -218,7 +218,7 @@ never sees it.
 ## 3. Production wiring
 
 - Build the SPA (`npm run build`) and serve the static files from Nginx or a
-  CDN — never from the Swoole process.
+  CDN — never from the app process.
 - Proxy `/api/*` to the Winter Boot port (`8080` in these guides) with
   `changeOrigin`-equivalent behaviour, preserving cookies and paths.
 - Keep Winter Boot bound to localhost or an internal interface; only the proxy

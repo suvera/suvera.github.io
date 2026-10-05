@@ -1,0 +1,135 @@
+---
+title: "Installation"
+sidebar:
+  label: "Installation"
+description: "Set up Winter Boot with Docker (recommended) or manually."
+---
+
+import { Aside, LinkCard, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+Set up your machine for Winter Boot development. Pick one path — you only need one:
+
+- **Option A — Docker (recommended).** PHP, Swoole, and the commonly needed extensions arrive pre-installed in the Winter Boot base image. No PECL, no `php.ini` editing.
+- **Option B — Manual install.** Install PHP yourself, add extensions via PECL, and require packages with Composer.
+
+## Option A — Docker (recommended)
+
+Winter Boot ships a base image definition (see [Build & Deploy](/winter-boot/advanced/build-deploy)) that extends the official `php:8.5-cli` image with the extensions most modules need (`swoole`, `redis`, `rdkafka`, `zip`).
+
+Build your application image on top of it:
+
+```dockerfile title="Dockerfile"
+FROM suvera/winter-boot:latest
+
+WORKDIR /app
+
+COPY composer.json composer.lock ./
+RUN composer install --no-dev --optimize-autoloader
+
+COPY src/    src/
+COPY config/ config/
+
+EXPOSE 8080
+
+CMD ["php", "src/MyApplication.php", "-c", "config/"]
+```
+
+```bash title="Build and run"
+docker build -t my-winter-service:latest .
+docker run -p 8080:8080 my-winter-service:latest
+```
+
+<Aside type="tip">
+  Prefer to keep editing locally while the runtime lives in Docker? Mount your project into the base image instead of building:
+
+  ```bash
+  docker run --rm -it -v $(pwd):/app -w /app -p 8080:8080 suvera/winter-boot:latest php Application.php
+  ```
+</Aside>
+
+<Aside type="note">
+  A fully-featured reference implementation is available at [github.com/suvera/winter-example-service](https://github.com/suvera/winter-example-service). Clone it to see a production layout with a multi-stage Dockerfile, Phar builds, datasource configuration, and more.
+</Aside>
+
+Once the container serves traffic, continue with the [Quickstart](/winter-boot/quickstart) — the code steps are identical inside or outside Docker.
+
+## Option B — Manual install
+
+<Steps>
+
+1. **Install PHP 8.5 or later**
+
+   Winter Boot requires PHP 8.5 or later. Confirm with:
+
+   ```bash
+   php -v
+   ```
+
+2. **Install the PHP extensions**
+
+   The `swoole` extension is required for the built-in HTTP server (`WinterWebSwooleApplication`), `#[Async]`, `#[Scheduled]`, daemon threads, and several libraries. Add further extensions only for the integrations you use:
+
+   | You need | Extension | Install |
+   | --- | --- | --- |
+   | HTTP server, async, scheduling, daemons, Kafka, SQS, DTCE, Eureka, Memdb | `swoole` | `pecl install swoole` |
+   | Redis module, DTCE with Redis backend | `redis` (phpredis) | `pecl install redis` |
+   | Kafka module, DTCE with Kafka backend | `rdkafka` (needs the `librdkafka-dev` system library) | `pecl install rdkafka` |
+   | Memcache module, Memdb Hazelcast client | `memcached` or `memcache` | `pecl install memcached` |
+   | Telemetry module | `opentelemetry` | `pecl install opentelemetry` |
+   | Doctrine with a relational database | one of `pdo_sqlite`, `pdo_mysql`, `pdo_pgsql`, `pdo_sqlsrv`, `pdo_oci` | via your OS PHP packages |
+   | Image processing (how-to guides) | `imagick` | `pecl install imagick` |
+
+   After installing, enable each extension in your `php.ini`:
+
+   ```ini title="php.ini"
+   extension=swoole.so
+   ```
+
+   Then confirm everything is loaded:
+
+   ```bash
+   php -m | grep -E 'swoole|redis|rdkafka|memcached|opentelemetry'
+   php -r "echo phpversion('swoole');"
+   ```
+
+3. **Install the Composer packages**
+
+   Winter Boot is the framework core; every library below needs it installed explicitly alongside it. Install only what you use:
+
+   ```bash title="Framework only"
+   composer require suvera/winter-boot
+   ```
+
+   ```bash title="Framework plus libraries"
+   composer require suvera/winter-boot suvera/winter-modules
+   composer require suvera/winter-boot suvera/winter-doctrine
+   composer require suvera/winter-eureka
+   composer require suvera/winter-memdb
+   ```
+
+   | Package | What it gives you |
+   | --- | --- |
+   | `suvera/winter-boot` | Framework core: DI, AOP, REST, PDBC, transactions, migrations, async, scheduling, actuator, telemetry — always install this |
+   | `suvera/winter-modules` | 8 integration modules: Kafka, SQS, S3, OpenSearch, Redis, Memcache, DTCE, Security |
+   | `suvera/winter-doctrine` | Doctrine ORM and DBAL plus multi-tenant datasources |
+   | `suvera/winter-eureka` | Service discovery via Consul or Netflix Eureka |
+   | `suvera/winter-memdb` | Embedded in-memory servers (Redis, Ignite, Memcached, Hazelcast) managed by the app — *EXPERIMENTAL* |
+
+   <Aside type="note">
+     The library packages do not currently declare `suvera/winter-boot` as a dependency, so you must install it explicitly. Every library uses framework classes at runtime.
+   </Aside>
+
+4. **Verify the setup**
+
+   ```bash
+   php -v
+   php -r "echo phpversion('swoole');"
+   ```
+
+   Both commands should succeed without errors before you move on.
+
+</Steps>
+
+## What's next?
+
+<LinkCard title="Quickstart" href="/winter-boot/quickstart" description="Write your first service and REST controller and have a running HTTP server in minutes." />

@@ -11,12 +11,7 @@ Build a consumer app that reads from a Kafka topic and writes every message to a
 
 ## Prerequisites
 
-You need PHP 8.5 or later with the `swoole`, `rdkafka`, and `pcntl` extensions. You also need Docker to run Kafka.
-
-```bash
-pecl install swoole
-pecl install rdkafka
-```
+You need PHP 8.5 or later with the `swoole`, `rdkafka`, and `pcntl` extensions (see the [Installation](/winter-boot/installation) guide). You also need Docker to run Kafka.
 
 Start a single-broker Kafka before you run the app:
 
@@ -45,11 +40,7 @@ kafka/
 
 ## Install dependencies
 
-Require the framework and the modules package:
-
-```bash
-composer require suvera/winter-boot suvera/winter-modules
-```
+Install the framework and modules packages as described in the [Installation](/winter-boot/installation) guide (Docker is recommended).
 
 ## Source files
 

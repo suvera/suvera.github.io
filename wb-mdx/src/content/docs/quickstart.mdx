@@ -2,12 +2,12 @@
 title: "Quickstart: Build Your First Winter Boot Microservice"
 sidebar:
   label: "Quickstart"
-description: "Install Winter Boot via Composer, create a service and REST controller, and run a Swoole HTTP server. Zero to a live endpoint in under ten minutes."
+description: "Install Winter Boot, create a service and REST controller, and run a built-in HTTP server. Zero to a live endpoint in under ten minutes."
 ---
 
 import { Aside, CardGrid, LinkCard, Steps } from '@astrojs/starlight/components';
 
-This guide walks you through building a minimal but complete Winter Boot microservice from scratch. By the end you will have a running HTTP server, a managed service bean, and a REST endpoint you can hit with `curl`. All you need is PHP 8.4+, Composer, and the Swoole extension.
+This guide walks you through building a minimal but complete Winter Boot microservice from scratch. By the end you will have a running HTTP server, a managed service bean, and a REST endpoint you can hit with `curl`.
 
 <Aside type="note">
   A fully-featured reference implementation is available at [github.com/suvera/winter-example-service](https://github.com/suvera/winter-example-service). Clone it to see a real-world project layout with Docker, Phar builds, datasource configuration, and more.
@@ -15,31 +15,12 @@ This guide walks you through building a minimal but complete Winter Boot microse
 
 <Steps>
 
-1. **Install PHP and Swoole**
+1. **Install Winter Boot**
 
-   Ensure PHP 8.4 or later is installed, then install the Swoole extension for the built-in async HTTP server:
-
-   ```bash
-   pecl install swoole
-   ```
-
-   Confirm both are available:
-
-   ```bash
-   php -v
-   php -r "echo phpversion('swoole');"
-   ```
-
-
-1. **Require the Composer Packages**
-
-   Create a new directory for your project and initialise it with Composer, then pull in the core framework package. The optional `winter-modules` package adds community integrations (Redis, Kafka, Doctrine ORM, and more).
+   Set up PHP, the required extension, and the framework packages by following the [Installation](/winter-boot/installation) guide — Docker is the recommended path. Then create your project directory:
 
    ```bash
    mkdir my-service && cd my-service
-   composer init --no-interaction
-   composer require suvera/winter-boot
-   composer require suvera/winter-modules   # optional
    ```
 
 
@@ -172,7 +153,7 @@ This guide walks you through building a minimal but complete Winter Boot microse
 
 1. **Run the Application**
 
-   Start the server by executing the entry point with PHP. Swoole will fork worker processes and begin accepting HTTP connections on the port defined in `application.yml`.
+   Start the server by executing the entry point with PHP. It will fork worker processes and begin accepting HTTP connections on the port defined in `application.yml`.
 
    ```bash
    php Application.php

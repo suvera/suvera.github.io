@@ -67,7 +67,7 @@ Four files. The controller streams the bytes with `application/pdf` and a downlo
   <TabItem label="service/PdfService.php">
     The renderer. Builds the HTML from a template, renders it, stamps page
     numbers, and returns raw bytes. Uses `output()` — never `stream()`, which
-    echoes and exits and has no place in a long-running Swoole worker.
+    echoes and exits and has no place in a long-running server worker.
 
     ```php
     <?php

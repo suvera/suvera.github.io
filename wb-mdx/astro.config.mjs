@@ -57,7 +57,7 @@ export default defineConfig({
             sidebar: [
                 {
                     label: 'Start Here',
-                    items: ['introduction', 'quickstart', 'configuration'],
+                    items: ['introduction', 'quickstart', 'installation', 'configuration'],
                 },
                 { label: 'Core', items: [{ autogenerate: { directory: 'core' } }] },
                 { label: 'Web', items: [{ autogenerate: { directory: 'web' } }] },

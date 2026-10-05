@@ -7,7 +7,7 @@ description: "Learn how Winter Boot scans namespaces, builds the bean graph, fir
 
 import { Aside, Card, CardGrid, Steps } from '@astrojs/starlight/components';
 
-Every Winter Boot application begins with a single annotated class and a call to a runner. From that moment the framework scans your code, builds a complete bean graph, calls lifecycle hooks, and hands control to the runtime — whether that is a Swoole HTTP server, plain PHP-FPM, a CLI tool, or a migration runner. Knowing exactly what happens at each stage helps you write correct startup code and understand why the order of `#[PostConstruct]` and `#[OnApplicationReady]` matters.
+Every Winter Boot application begins with a single annotated class and a call to a runner. From that moment the framework scans your code, builds a complete bean graph, calls lifecycle hooks, and hands control to the runtime — whether that is the built-in HTTP server, plain PHP-FPM, a CLI tool, or a migration runner. Knowing exactly what happens at each stage helps you write correct startup code and understand why the order of `#[PostConstruct]` and `#[OnApplicationReady]` matters.
 
 ## Startup sequence
 
@@ -65,7 +65,7 @@ The container follows a fixed, deterministic sequence every time your applicatio
 
 1. **Start serving**
 
-   The runner hands off to the underlying runtime — starting the Swoole HTTP server, dispatching a single PHP-FPM request, executing CLI logic, or running migrations.
+   The runner hands off to the underlying runtime — starting the built-in HTTP server, dispatching a single PHP-FPM request, executing CLI logic, or running migrations.
 
 
 
@@ -141,7 +141,7 @@ Choose the runner class that matches how your application is deployed.
 <CardGrid>
 
 <Card title="WinterWebSwooleApplication" icon="star">
-  **High-performance HTTP server** powered by OpenSwoole. Starts a persistent
+  **High-performance HTTP server.** Starts a persistent
   multi-worker server that handles concurrent requests in a single PHP process.
   The right choice for production APIs and microservices.
 
@@ -152,7 +152,7 @@ Choose the runner class that matches how your application is deployed.
 
 <Card title="WinterWebApplication" icon="external">
   **Traditional PHP-FPM / Apache web runner.** Bootstraps the full context once
-  per request under a conventional web server. Use when Swoole is unavailable
+  per request under a conventional web server. Use when the extension is unavailable
   or when integrating with an existing PHP hosting environment.
 
   ```php
@@ -298,7 +298,7 @@ class AppStartupTasks implements ApplicationReadyEvent {
 
 <Aside type="note">
   `#[OnApplicationReady]` fires **once per application boot**, not once per
-  request. In the Swoole runner it fires in the master process before the HTTP
+  request. In the server runner it fires in the master process before the HTTP
   server starts accepting connections.
 </Aside>
 

@@ -2,7 +2,7 @@
 title: "Winter Kafka: Kafka Producer and Consumer Module"
 sidebar:
   label: "Kafka"
-description: "Winter Kafka lets you produce and consume Kafka messages in Winter Boot with swoole and rdkafka support. Configure groups, producers, and workers through YAML."
+description: "Winter Kafka lets you produce and consume Kafka messages in Winter Boot with rdkafka support. Configure groups, producers, and workers through YAML."
 ---
 
 import { Aside, Steps } from '@astrojs/starlight/components';
@@ -11,23 +11,9 @@ Winter Kafka is a module that provides easy configuration and access to Kafka fu
 
 <Steps>
 
-1. **Install PHP extensions**
+1. **Install the prerequisites**
 
-   Winter Kafka needs `swoole` and `rdkafka` installed via PECL.
-
-   ```shell
-   pecl install swoole
-   pecl install rdkafka
-   ```
-
-
-1. **Require the module**
-
-   Add the modules package with Composer.
-
-   ```shell
-   composer require suvera/winter-modules
-   ```
+   Winter Kafka needs the `swoole` and `rdkafka` PHP extensions plus the modules package. Follow the [Installation](/winter-boot/installation) guide (Docker is recommended) to set them up.
 
 
 1. **Enable in application.yml**

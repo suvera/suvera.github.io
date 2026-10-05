@@ -180,7 +180,7 @@ between them:
 - `send()` blocks until the SMTP exchange finishes — fine for a reply-to
   contact form, wrong for a post-registration mail inside a request handler.
 - `sendAsync()` returns immediately and runs in a worker process. It needs
-  `#[EnableAsync]` on the application class (and Swoole, like all workers):
+  `#[EnableAsync]` on the application class (plus the PHP extension from the [Installation](/winter-boot/installation) guide, like all workers):
 
 ```php title="MyApplication.php — additions"
 use dev\winterframework\stereotype\task\EnableAsync;

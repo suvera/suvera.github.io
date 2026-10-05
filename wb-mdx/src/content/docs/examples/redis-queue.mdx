@@ -11,7 +11,7 @@ Build a reliable queue on Redis Streams with consumer groups. You use Winter Boo
 
 ## Prerequisites
 
-You need PHP 8.5 or later with the `swoole`, `pcntl`, and `redis` (phpredis) extensions. You also need a Redis 5+ server reachable from the app.
+You need PHP 8.5 or later with the `swoole`, `pcntl`, and `redis` (phpredis) extensions (see the [Installation](/winter-boot/installation) guide). You also need a Redis 5+ server reachable from the app.
 
 Start Redis before you run the app:
 
@@ -43,11 +43,7 @@ redis-queue/
 
 ## Install dependencies
 
-Require the framework and the modules package:
-
-```bash
-composer require suvera/winter-boot suvera/winter-modules
-```
+Install the framework and modules packages as described in the [Installation](/winter-boot/installation) guide (Docker is recommended).
 
 ## Source files
 
@@ -319,7 +315,7 @@ Switch between the two config files. `application.yml` enables the module, and `
 
 ## Reliability semantics
 
-Each consumer spawns `workerNum` Swoole worker processes at boot. Every worker loops over `XREADGROUP` with `BLOCK` on its stream and group:
+Each consumer spawns `workerNum` worker processes at boot. Every worker loops over `XREADGROUP` with `BLOCK` on its stream and group:
 
 - **Ack on success.** Entries are `XACK`ed only after `consume()` returns without throwing. Unacked entries stay in the group pending list.
 - **Redelivery.** A throttled `XPENDING` scan reclaims entries idle past `claimIdleMs` (for example after a transient failure or a crashed worker) via `XCLAIM`, bumping `ConsumerRecord::getDeliveryCount()`.

@@ -11,7 +11,7 @@ Build a consumer app that polls an SQS queue and writes every message to a file.
 
 ## Prerequisites
 
-You need PHP 8.5 or later with the `swoole` and `pcntl` extensions. You also need Docker to run ElasticMQ and the AWS CLI to create the queue and send messages.
+You need PHP 8.5 or later with the `swoole` and `pcntl` extensions (see the [Installation](/winter-boot/installation) guide). You also need Docker to run ElasticMQ and the AWS CLI to create the queue and send messages.
 
 Start ElasticMQ before you run the app:
 
@@ -39,11 +39,7 @@ sqs/
 
 ## Install dependencies
 
-Require the framework and the modules package:
-
-```bash
-composer require suvera/winter-boot suvera/winter-modules
-```
+Install the framework and modules packages as described in the [Installation](/winter-boot/installation) guide (Docker is recommended).
 
 ## Source files
 

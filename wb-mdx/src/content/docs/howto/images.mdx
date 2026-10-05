@@ -16,11 +16,9 @@ Prerequisites: the extension and the underlying binaries (check with `php -m | g
 
 ```bash
 sudo apt install imagemagick libmagickwand-dev
-pecl install imagick
-# then enable extension=imagick.so in php.ini
-
-composer require suvera/winter-boot suvera/winter-modules
 ```
+
+Install the `imagick` PHP extension and the framework packages via the [Installation](/winter-boot/installation) guide (Docker is recommended), then enable `extension=imagick.so` in your `php.ini` for manual installs.
 
 For local development, run [ElasticMQ](https://github.com/softwaremill/elasticmq), an SQS-compatible emulator — no AWS account needed:
 
@@ -384,7 +382,7 @@ Switch between the two files:
 
 ## 4. Serve and clean up
 
-- Serve `variants/` as static files from Nginx/CDN — Swoole should not spend
+- Serve `variants/` as static files from Nginx/CDN — the app server should not spend
   worker time on bytes Nginx serves better. A controller download (like the
   [PDF guide](/winter-boot/howto/pdf)) fits only access-controlled originals.
 - Delete the inbox original after success (or archive it if reprocessing

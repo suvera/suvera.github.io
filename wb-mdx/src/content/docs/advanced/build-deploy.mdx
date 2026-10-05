@@ -2,46 +2,18 @@
 title: "Build and Deploy Your Winter Boot PHP 8 Application"
 sidebar:
   label: "Build & Deploy"
-description: "Package Winter Boot apps as Phar archives or Docker images, pick the right application runner, and manage processes with systemd or Kubernetes."
+description: "Package Winter Boot apps as Phar archives or Docker images and manage processes with systemd or Kubernetes."
 ---
 
 import { Aside, Card, CardGrid, Steps } from '@astrojs/starlight/components';
 
 Winter Boot applications can be shipped in several ways depending on your infrastructure: as a self-contained Phar archive for bare-metal hosts, as a Docker image for containerised deployments, or via standard PHP-FPM for environments that already manage PHP processes. The framework ships with a sample init.d script and Docker base image to get you started quickly. A fully working example, including a `Dockerfile` and a `box.json` build manifest, is available in the `suvera/winter-example-service` repository.
 
-## Choose an Application Runner
-
-Before building, choose the runner that matches your deployment target. Each runner starts the application in a different mode.
-
-<CardGrid>
-  <Card title="WinterWebSwooleApplication" icon="star">
-    **Recommended for production.** Starts a Swoole HTTP server with multiple worker processes. Supports `#[Async]`, `#[Scheduled]`, daemon threads, and the local KV/Queue stores. Requires the `swoole` PHP extension.
-  
-</Card>
-  <Card title="WinterWebApplication" icon="server">
-    Traditional PHP-FPM / CGI runner. Each request is a new process invocation — no persistent workers. Use this when Swoole is unavailable or when integrating with an existing PHP-FPM pool.
-  
-</Card>
-  <Card title="WinterCliApplication" icon="window">
-    Command-line runner. Boots the application context and fires the `ApplicationReady` event, then exits. Useful for batch jobs, migrations, and one-off administrative scripts.
-  
-</Card>
-</CardGrid>
+All builds below assume the `WinterWebSwooleApplication` runner:
 
 ```php title="bin/app.php"
-// Swoole HTTP server (recommended for production)
 (new WinterWebSwooleApplication())->run(MyApplication::class);
-
-// PHP-FPM / traditional
-(new WinterWebApplication())->run(MyApplication::class);
-
-// CLI / batch
-(new WinterCliApplication())->run(MyApplication::class);
 ```
-
-<Aside type="caution">
-  `WinterWebApplication` (PHP-FPM) does not support `#[Async]`, `#[Scheduled]`, daemon threads, or the local KV/Queue stores. These features require `WinterWebSwooleApplication`.
-</Aside>
 
 ---
 
@@ -165,15 +137,15 @@ docker run -p 8080:8080 my-winter-service:latest
 
 
   <details>
-<summary>PHP 8.4+ required</summary>
+<summary>PHP 8.5+ required</summary>
 
-Winter Boot requires PHP 8.4 or higher. The base image ships PHP 8.5-cli.
+Winter Boot requires PHP 8.5 or higher. The base image ships PHP 8.5-cli.
 
 </details>
   <details>
-<summary>Swoole extension</summary>
+<summary>PHP extension</summary>
 
-Install via `pecl install swoole` for the `WinterWebSwooleApplication` runner. The base image already includes it.
+The `swoole` extension is required for the `WinterWebSwooleApplication` runner — install it via the [Installation](/winter-boot/installation) guide. The base image already includes it.
 
 </details>
   <details>
@@ -283,11 +255,11 @@ systemctl start  my-winter-service
 
 ### PHP-FPM Deployment
 
-When using `WinterWebApplication` (without Swoole), point your web server's FastCGI configuration at your application entry point:
+When using `WinterWebApplication` (without the extension), point your web server's FastCGI configuration at your application entry point:
 
 ```nginx title="/etc/nginx/sites-available/my-app.conf"
 location / {
-    fastcgi_pass  unix:/run/php/php8.4-fpm.sock;
+    fastcgi_pass  unix:/run/php/php8.5-fpm.sock;
     fastcgi_param SCRIPT_FILENAME /var/www/my-app/bin/app.php;
     include       fastcgi_params;
 }

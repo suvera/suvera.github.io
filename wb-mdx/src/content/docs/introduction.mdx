@@ -25,7 +25,7 @@ Winter is deliberately modular. You install the framework, then add only the lib
 
 ## What is Winter Boot?
 
-Winter Boot turns a plain PHP class into a fully managed application context with a single attribute. The framework scans your namespaces at startup, registers beans, wires dependencies, maps HTTP routes via Swoole, and exposes every cross-cutting concern through attributes rather than boilerplate configuration files. The result is lean, readable service code that focuses on business logic instead of framework plumbing.
+Winter Boot turns a plain PHP class into a fully managed application context with a single attribute. The framework scans your namespaces at startup, registers beans, wires dependencies, maps HTTP routes via the built-in server, and exposes every cross-cutting concern through attributes rather than boilerplate configuration files. The result is lean, readable service code that focuses on business logic instead of framework plumbing.
 
 ```php title="Application.php"
 <?php
@@ -49,7 +49,7 @@ MyApplication::main();
 ```
 
 <Aside type="note">
-  Winter Boot requires **PHP 8.4 or later**; the official libraries pin to **PHP 8.5**. The Swoole extension (`pecl install swoole`) is required for the built-in HTTP server (`WinterWebSwooleApplication`), the async and scheduled tasks (`#[Async]`, `#[Scheduled]`), and several libraries (Memdb, Eureka, Kafka, DTCE). Non-Swoole framework features work without it.
+  Winter Boot requires **PHP 8.5 or later**. A PHP extension is required for the built-in HTTP server (`WinterWebSwooleApplication`), the async and scheduled tasks (`#[Async]`, `#[Scheduled]`), and several libraries (Memdb, Eureka, Kafka, DTCE). See the [Installation](/winter-boot/installation) guide to set everything up.
 </Aside>
 
 ## Key features
@@ -73,22 +73,11 @@ Before you install Winter Boot, make sure your environment meets these prerequis
 
 | Requirement | Version / Notes |
 |---|---|
-| PHP | 8.4 or later (8.5 recommended, required by official libraries) |
-| Swoole extension | Required for HTTP server, `#[Async]`, `#[Scheduled]`, and several libraries |
+| PHP | 8.5 or later |
+| PHP extension | Required for HTTP server, `#[Async]`, `#[Scheduled]`, and several libraries (see [Installation](/winter-boot/installation)) |
 | Composer | Any recent version |
 
-Install the Swoole extension via PECL:
-
-```bash
-pecl install swoole
-```
-
-Confirm both PHP and Swoole are available:
-
-```bash
-php -v
-php -r "echo phpversion('swoole');"
-```
+Install PHP, the required extension, and the framework packages by following the [Installation](/winter-boot/installation) guide — Docker is the recommended path.
 
 ## Spring Boot inspiration
 
@@ -144,4 +133,4 @@ Cross-cutting concerns such as caching, transactions, retries, and custom interc
 
 ## Microservices focus
 
-Winter Boot is optimised for the microservice deployment model: stateless HTTP workers managed by Swoole, an optional in-process key-value store and task queue, built-in Prometheus metrics via the Actuator, and an extensible module system for integrations with Redis, Kafka, Doctrine ORM, Amazon SQS/S3, OpenSearch, and service-discovery solutions such as Consul and Netflix Eureka. See the [Libraries overview](/winter-boot/modules/overview) for the full catalog and guidance on choosing the right library.
+Winter Boot is optimised for the microservice deployment model: stateless HTTP workers managed by the built-in server, an optional in-process key-value store and task queue, built-in Prometheus metrics via the Actuator, and an extensible module system for integrations with Redis, Kafka, Doctrine ORM, Amazon SQS/S3, OpenSearch, and service-discovery solutions such as Consul and Netflix Eureka. See the [Libraries overview](/winter-boot/modules/overview) for the full catalog and guidance on choosing the right library.

@@ -15,11 +15,7 @@ Winter Data Memcache is a module that provides easy configuration and access to 
 
 ## Setup
 
-```shell
-composer require suvera/winter-modules
-```
-
-Append the following code to your `application.yml`:
+Install the modules package as described in the [Installation](/winter-boot/installation) guide, then append the following code to your `application.yml`:
 
 ```yaml
 modules:
@@ -35,13 +31,7 @@ PHP has two very good libraries that can be used to work with Memcache:
 1. [Memcached](https://www.php.net/manual/en/book.memcached.php)
 2. [Memcache](https://www.php.net/manual/en/book.memcache.php)
 
-One of these extensions is required.
-
-```shell
-pecl install memcached
-
-pecl install memcache
-```
+One of these extensions is required — see the [Installation](/winter-boot/installation) guide (Docker is recommended).
 
 ## Autowired Services
 

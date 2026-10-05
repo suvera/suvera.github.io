@@ -5,9 +5,9 @@ sidebar:
 description: "Use the #[Async] attribute to dispatch service methods to background worker processes, keeping your HTTP responses fast regardless of task cost."
 ---
 
-import { Aside, Steps } from '@astrojs/starlight/components';
+import { Aside } from '@astrojs/starlight/components';
 
-Winter Boot's asynchronous execution model lets you fire off any service or component method as a background task — the calling code returns immediately while a dedicated pool of Swoole worker processes handles the actual work. This non-blocking design keeps web request latency low even when individual operations are expensive, because heavy lifting happens outside the request/response cycle entirely. Under the hood, arguments are serialised into an in-memory (or Redis-backed) queue and consumed by background workers, so the concurrency model is process-based rather than thread-based.
+Winter Boot's asynchronous execution model lets you fire off any service or component method as a background task — the calling code returns immediately while a dedicated pool of worker processes handles the actual work. This non-blocking design keeps web request latency low even when individual operations are expensive, because heavy lifting happens outside the request/response cycle entirely. Under the hood, arguments are serialised into an in-memory (or Redis-backed) queue and consumed by background workers, so the concurrency model is process-based rather than thread-based.
 
 <Aside type="tip">
   For distributed task processing across multiple nodes with persistent queues, see the [DTCE module](/winter-boot/modules/dtce). For event-driven consumers backed by Kafka or SQS, see [Kafka](/winter-boot/modules/kafka) and [SQS](/winter-boot/modules/sqs).
@@ -15,29 +15,11 @@ Winter Boot's asynchronous execution model lets you fire off any service or comp
 
 ## Prerequisites
 
-Async support is powered by the [Swoole](https://openswoole.com/) PHP extension. Install it via PECL and enable it in your `php.ini` before proceeding.
-
-<Steps>
-
-1. **Install the Swoole extension**
-
-   ```bash
-   pecl install swoole
-   ```
-
-
-1. **Enable Swoole in php.ini**
-
-   ```ini
-   extension=swoole.so
-   ```
-
-
-</Steps>
+Async support is powered by a PHP extension. Install and enable it via the [Installation](/winter-boot/installation) guide before proceeding.
 
 ## Enable Async on Your Application Class
 
-Add the `#[EnableAsync]` attribute to your `#[WinterBootApplication]` class. The framework validates at boot time that both attributes are present and that Swoole is loaded — a `TypeError` or `AnnotationException` is thrown otherwise.
+Add the `#[EnableAsync]` attribute to your `#[WinterBootApplication]` class. The framework validates at boot time that both attributes are present and that the extension is loaded — a `TypeError` or `AnnotationException` is thrown otherwise.
 
 ```php title="MyApplication.php"
 use dev\winterframework\stereotype\WinterBootApplication;

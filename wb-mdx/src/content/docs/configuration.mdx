@@ -15,7 +15,7 @@ All externalised properties live in `config/application.yml` (the path is set by
 
 ```yaml title="config/application.yml"
 server:
-    port: 8080                    # Port the Swoole HTTP server binds to
+    port: 8080                    # Port the built-in HTTP server binds to
     address: 127.0.0.1            # Network interface to listen on
     context-path: /               # URL prefix for all routes
 
@@ -51,7 +51,7 @@ myApp:
 ### Reserved Top-Level Keys
 
 - **`server.port`** `integer` (default: `8080`)
-  Port the Swoole HTTP server binds to.
+  Port the built-in HTTP server binds to.
 
 - **`server.address`** `string` (default: `127.0.0.1`)
   Network interface the server listens on. Use `0.0.0.0` to bind all interfaces.
