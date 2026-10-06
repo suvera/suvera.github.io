@@ -1,21 +1,21 @@
 ---
-title: "Extension Limits"
+title: "PHP Extension Requirements and Limits"
 sidebar:
-  label: "Extension Limits"
-description: "What each PHP extension Winter Boot relies on requires, and how the framework behaves when it is missing."
+  label: "PHP Extensions"
+description: "Which PHP extensions Winter Boot uses, what each one is needed for, and how the framework behaves when one is missing."
 ---
 
 import { Aside } from '@astrojs/starlight/components';
 
-Winter Boot leans on a small set of PHP extensions. This page lists what each one is needed for and, more importantly, what happens when it is absent or misconfigured — so a missing extension shows up as an understood error, not a mystery. The startup banner prints the detected version (or `not installed`) for Swoole, rdkafka and redis on every boot; check it first when something extension-related misbehaves.
+Winter Boot relies on a small set of PHP extensions. This page lists what each one is needed for and what happens when it is missing or misconfigured. The startup banner prints the detected version (or `not installed`) of Swoole, rdkafka, and redis on every boot — check it first when something extension-related misbehaves.
 
 <Aside type="tip">
-  Skip this entire page: run the `suvera/winter-boot` runtime Docker image instead of assembling extensions yourself. It preinstalls and enables Swoole, redis, rdkafka and `winter_boot` (plus `pcntl`, `curl`, `zip` and PostgreSQL drivers), so none of the missing-extension failures below can occur.
+  Using the `suvera/winter-boot` Docker image? It preinstalls and enables Swoole, redis, rdkafka, and `winter_boot` (plus `pcntl`, `curl`, `zip`, and PostgreSQL drivers), so most of the missing-extension failures below cannot occur.
 </Aside>
 
 Need anything else (for example `memcache` or `opentelemetry`)? Extend the image with your own multi-stage build rather than installing into it — that keeps the runtime image small. See the [Dockerfile](https://github.com/suvera/winter-boot/blob/master/build/docker/Dockerfile) for the builder pattern to follow.
 
-The sections below then apply only to setups that do not use this image.
+The sections below matter mostly for setups that do not use this image.
 
 ## Swoole (required for server, async and coroutines)
 
@@ -28,20 +28,11 @@ Web applications run on the Swoole server (`WinterWebSwooleApplication`), and al
 
 ## winter_boot (required since 2.1.0, native capabilities)
 
-The bundled native extension. Booting without it stops the application with a clear error — use the runtime Docker image, where it is preinstalled, instead of assembling it yourself. See [Native Extension](/winter-boot/advanced/native-extension/) for full usage; the limits in brief:
+The bundled native extension. Booting without it stops the application with a clear error — use the runtime Docker image, where it is preinstalled, instead of assembling it yourself. See [Native Extension](/winter-boot/advanced/native-extension/) for details; the limits in brief:
 
-- Throws `Error` outside a function body (global/file/`eval` scope) and inside generator functions (use `try`/`finally` there instead).
-- Throws `TypeError` for a non-callable argument.
-- Fully supported inside fibers; `Fiber::suspend()` never triggers callbacks.
-- Pending callbacks are discarded — never executed — on fatal errors (`E_ERROR`, out of memory) and when a fiber is destroyed while suspended.
-- `defered()` (one `r`) is an accepted alias with identical behavior.
 - Native AOP advises the original bean methods (no proxies): a `stopExecution()` value must match the declared return type exactly, `static` methods cannot carry advice, and an explicit `parent::` call to an advised method runs its advice.
 - Loading the extension disables PHP's JIT compiler automatically (the engine does this for any executor override); OPcache itself keeps working. There is no flag to override this — size the performance expectations accordingly.
-- Do not load Xdebug alongside `winter_boot` in Swoole server environments. Any executor override (proven with a 20-line passthrough extension, so this is not specific to `winter_boot`) segfaults Swoole workers when Xdebug's develop-mode exception hook formats a thrown exception. Either remove the Xdebug ini or set `xdebug.mode=off`. The runtime Docker image ships without Xdebug, so deployments are unaffected.
-
-<Aside type="note">
-  Unlike a global `defer()` name, `deferred()` coexists peacefully with Swoole — both extensions stay enabled in the runtime image.
-</Aside>
+- Do not load Xdebug alongside `winter_boot` in Swoole server environments: Swoole workers can crash (segfault) when Xdebug's develop mode formats a thrown exception. Remove the Xdebug ini or set `xdebug.mode=off`. The runtime Docker image ships without Xdebug.
 
 ## APCu (optional, `ApcCache` only)
 
@@ -51,13 +42,13 @@ The bundled native extension. Booting without it stops the application with a cl
 ## OpenTelemetry (optional, telemetry module)
 
 - Enabling `OpenTelemetryModule` without the extension fails fast: module startup throws `MissingExtensionException`.
-- The extension alone is not enough — telemetry also needs the OpenTelemetry SDK, the SPI plugin bridge, and an `opentelemetry.yaml` config wired through the module entry. When spans go missing, check exporter endpoint and sampler settings in that config next.
+- The extension alone is not enough — telemetry also needs the OpenTelemetry SDK and an exporter package, configured through the standard `OTEL_*` environment variables (see [Telemetry](/winter-boot/ops/telemetry)). When spans go missing, check `OTEL_PHP_AUTOLOAD_ENABLED` and the exporter endpoint first.
 
 ## redis / memcache / rdkafka (only with their modules)
 
 These matter only when the corresponding module or backend is enabled; the core framework never requires them.
 
-- **redis** (phpredis): needed for the Redis module (`PhpRedisTemplate`, cluster template), `RedisCache`, Redis-backed locks and the async Redis queue store. Both `redis` and `swoole` back the async paths.
+- **redis** (phpredis): needed for the Redis module (`PhpRedisTemplate`, cluster template), `RedisCache`, and the async Redis queue store.
 - **memcache / memcached**: needed for the Memcache module templates. The two extensions are different client libraries — enable the one matching the configured template.
 - **rdkafka** (plus Swoole): needed for the Kafka module (producers/consumers) and the Kafka-backed DTCE queue. Without both, Kafka consumers and workers cannot start.
 

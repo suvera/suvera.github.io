@@ -860,7 +860,7 @@ up front:
   Ship those lines to your log aggregator and alert on spikes — a burst of
   `403`s from one user is either an attacker probing or a broken role rollout.
   Log user id, permission, and URI only — never passwords, tokens, or bodies.
-- **Separate authentication from authorisation failures.** `401` (unknown or
+- **Separate authentication from authorization failures.** `401` (unknown or
   expired session) tells the client to log in again; `403` (valid session,
   missing grant) tells it to stop asking. Merging them breaks client retry
   logic and confuses incident triage.

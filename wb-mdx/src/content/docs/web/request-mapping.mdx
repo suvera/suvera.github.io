@@ -5,28 +5,28 @@ sidebar:
 description: "Route requests in Winter Boot using #[RequestMapping], method shortcuts #[GetMapping] and #[PostMapping], plus #[PathVariable] and #[RequestParam]."
 ---
 
-import { Aside, Card, CardGrid, Tabs, TabItem } from '@astrojs/starlight/components';
+import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
 
-Winter Boot uses PHP 8 native attributes for routing. Instead of maintaining a central routes file, you place mapping attributes directly on controller methods — or on the controller class itself to establish a base URI prefix. The framework reads these attributes at startup, builds a routing table, and dispatches every incoming request to the correct handler with all parameters already bound and type-cast.
+Winter Boot routes requests with PHP 8 attributes. Instead of a central routes file, you put mapping attributes on controller methods — and optionally on the controller class to set a base path. The framework reads them at startup, builds the routing table, and calls the matching handler with its parameters already bound and converted to the declared types.
 
 ## `#[RequestMapping]`
 
 `#[RequestMapping]` (namespace `dev\winterframework\stereotype\web\RequestMapping`) can be applied at **class level** to set a base URI prefix, or at **method level** to define the full route for that handler. When both are present, the class-level path is prepended to the method-level path automatically.
 
-- **`path`** `string|array` (required)
+- **`path`** `string|array`
   The URI pattern for this mapping. Supports `{variable}` placeholders for path variables. Accepts a single string or an array of strings to map multiple paths to the same handler.
 
 - **`method`** `array`
   List of `RequestMethod` constants this handler accepts — for example, `[RequestMethod::GET, RequestMethod::POST]`. Defaults to all HTTP methods when omitted.
 
 - **`name`** `string`
-  An optional human-readable name for this mapping. Useful for logging and debugging.
+  An optional name for this mapping, shown in logs and the actuator's mappings endpoint.
 
 - **`consumes`** `array`
-  List of media types this handler consumes — for example, `['application/json']`. Requests with a non-matching `Content-Type` are rejected.
+  Media types this handler accepts — for example, `['application/json']`. Requests with any other `Content-Type` are rejected with `400 Bad Request`.
 
 - **`produces`** `array`
-  List of media types this handler produces — for example, `['application/json']`. Used to negotiate the response `Content-Type`.
+  Media types this handler returns — for example, `['application/json']`. Informational only: it is listed in the actuator's mappings endpoint but does not set or negotiate the response `Content-Type`.
 
 ### RequestMethod Enum Values
 
@@ -80,23 +80,13 @@ class ProductController
 
 Winter Boot ships five convenience attributes that combine `#[RequestMapping]` with a fixed HTTP method. They accept the same `path`, `name`, `consumes`, and `produces` parameters, but you never need to specify `method` explicitly.
 
-<CardGrid>
-  <Card title="#[GetMapping]" icon="down-arrow">
-Handles HTTP GET requests
-</Card>
-  <Card title="#[PostMapping]" icon="up-arrow">
-Handles HTTP POST requests
-</Card>
-  <Card title="#[PutMapping]" icon="pen">
-Handles HTTP PUT requests
-</Card>
-  <Card title="#[DeleteMapping]" icon="close">
-Handles HTTP DELETE requests
-</Card>
-  <Card title="#[PatchMapping]" icon="pencil">
-Handles HTTP PATCH requests
-</Card>
-</CardGrid>
+| Attribute | HTTP method |
+|---|---|
+| `#[GetMapping]` | GET |
+| `#[PostMapping]` | POST |
+| `#[PutMapping]` | PUT |
+| `#[PatchMapping]` | PATCH |
+| `#[DeleteMapping]` | DELETE |
 
 ```php
 use dev\winterframework\stereotype\web\GetMapping;
@@ -116,10 +106,10 @@ public function listUsers(): array
   Name of the incoming parameter. Defaults to the PHP variable name when omitted.
 
 - **`required`** `bool`
-  Whether the parameter must be present in the request. Defaults to `true`. Set to `false` to make it optional.
+  Whether the parameter must be present in the request. Defaults to `true` — a missing value returns `400 Bad Request`, **even if the PHP parameter has a default**. Set `required: false` for optional parameters.
 
 - **`defaultValue`** `mixed`
-  Value used when the parameter is absent and `required` is `false`.
+  Value used when the parameter is absent and `required` is `false`. A PHP default on the parameter (`string $name = 'World'`) works too.
 
 - **`source`** `string`
   Where to read the value from. Defaults to `'request'`. See the source table below.
@@ -174,7 +164,7 @@ public function profile(
 ```
 
 <Aside type="note">
-  `#[RequestParam]` only accepts scalar PHP types (`string`, `int`, `float`, `bool`). For custom classes, use `#[RequestBody]` instead.
+  `#[RequestParam]` only accepts built-in PHP types (`string`, `int`, `float`, `bool`, or `array` for multi-value headers). For custom classes, use `#[RequestBody]` instead.
 </Aside>
 
 ## `#[PathVariable]`
@@ -206,10 +196,10 @@ public function getUser(#[PathVariable] int $id): array
 
 ## `#[RequestBody]`
 
-`#[RequestBody]` (namespace `dev\winterframework\stereotype\web\RequestBody`) binds the entire HTTP request body to a method parameter. Winter Boot deserialises JSON, XML, URL-encoded form bodies, **and** multipart forms into the target class automatically. The parameter must be type-hinted with a concrete class, or `string` to receive the raw body. Union types are not supported.
+`#[RequestBody]` (namespace `dev\winterframework\stereotype\web\RequestBody`) binds the entire HTTP request body to a method parameter. Winter Boot maps JSON, XML, URL-encoded form, **and** multipart bodies onto the target class automatically. The parameter must be type-hinted with a concrete class, or `string` to receive the raw body. Union types are not supported.
 
 <Tabs>
-  <TabItem label="Deserialised Object">
+  <TabItem label="Mapped Object">
 
     ```php
     use dev\winterframework\stereotype\web\PostMapping;
@@ -270,7 +260,7 @@ class CsvPayload
 Any other constructor shape fails here and the request is rejected with `400 Bad Request`.
 
 - **`disableParsing`** `bool`
-  Skips JSON/XML deserialisation. Defaults to `false`. When `true`, the raw body is handed to the single-string-arg constructor instead — useful for hand-rolled formats.
+  Skips JSON/XML parsing. Defaults to `false`. When `true`, the raw body is handed to the single-string-arg constructor instead — useful for hand-rolled formats.
 
 ```php
 use dev\winterframework\stereotype\web\PostMapping;
@@ -289,7 +279,7 @@ For `multipart/form-data` requests, text fields and uploaded files are merged in
 
 * Declare text fields as scalars (`string`, `int`, `float`, `bool`) — values are type-cast.
 * Declare a file field as `HttpUploadedFile` (namespace `dev\winterframework\web\http\HttpUploadedFile`) to get a typed object — `getFilePath()` for the temp path, plus `getName()`, `getSize()`, `getError()` / `getErrorText()`. Declare it as `array` instead to receive the raw `$_FILES` entry (`name`, `type`, `tmp_name`, `error`, `size`).
-* A multi-file field (`<input type="file" name="photos" multiple>`) keeps PHP's parallel-array `$_FILES` shape — normalise it yourself, or inject `HttpRequest` and use `getFiles()` / `getFile($name)` instead.
+* A multi-file field (`<input type="file" name="photos" multiple>`) keeps PHP's parallel-array `$_FILES` shape — normalize it yourself, or inject `HttpRequest` and use `getFiles()` / `getFile($name)` instead.
 
 ```php
 use dev\winterframework\stereotype\web\PostMapping;

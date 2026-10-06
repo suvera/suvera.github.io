@@ -7,7 +7,7 @@ description: "Winter OpenSearch adds full-text search and analytics to Winter Bo
 
 import { Aside } from '@astrojs/starlight/components';
 
-Winter OpenSearch is a module that provides easy configuration and access to OpenSearch (or compatible search services) from Winter Boot applications. Each named entry in `opensearch-config.yml` builds an OpenSearch client and registers an `OpenSearchTemplate` bean, so you can talk to multiple clusters from the same service. When the `swoole` extension is loaded, requests are dispatched through a coroutine HTTP handler automatically.
+Winter OpenSearch connects Winter Boot applications to OpenSearch clusters, including Amazon OpenSearch Service. Each named entry in `opensearch-config.yml` builds an OpenSearch client and registers an `OpenSearchTemplate` bean, so you can talk to multiple clusters from the same service. When the `swoole` extension is loaded, requests are dispatched through a coroutine HTTP handler automatically.
 
 ## Setup
 
@@ -15,7 +15,7 @@ Install the modules package as described in the [Installation](/winter-boot/inst
 
 Enable the module in your **application.yml**:
 
-```yaml
+```yaml title="application.yml"
 modules:
   - module: dev\winterframework\opensearch\OpenSearchModule
     enabled: true
@@ -28,7 +28,7 @@ modules:
 
 Each entry under `opensearch` is a named cluster connection. Only `name` and `hosts` are mandatory.
 
-```yaml
+```yaml title="config/opensearch-config.yml"
 opensearch:
   - name: default
     hosts:

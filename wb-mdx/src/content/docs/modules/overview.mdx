@@ -2,12 +2,13 @@
 title: "Winter Libraries: Ecosystem Overview and Selection Guide"
 sidebar:
   label: "Overview"
+  order: 1
 description: "Browse every official Winter library, understand how each one plugs into Winter Boot, and pick the right package for your data, messaging, storage, or discovery needs."
 ---
 
 import { CardGrid, LinkCard } from '@astrojs/starlight/components';
 
-The Winter library ecosystem is a set of optional packages that extend the [Winter Boot](/winter-boot/introduction) framework with integrations for databases, message queues, object storage, search, and distributed infrastructure. Every library implements the framework's [module system](/winter-boot/core/module-system) contract and registers beans automatically, so once you enable a module in `application.yml` you can `#[Autowired]` its templates and clients anywhere in your code.
+Winter libraries are optional packages that add integrations to [Winter Boot](/winter-boot/introduction) for databases, message queues, object storage, search, and distributed infrastructure. Each library is a [module](/winter-boot/core/module-system) that registers its beans automatically: enable it in `application.yml` and you can `#[Autowired]` its templates and clients anywhere.
 
 ## Choose a library
 
@@ -65,7 +66,7 @@ Client libraries that connect to external data stores.
   <LinkCard title="Distributed Tasks (DTCE)" href="/winter-boot/modules/dtce" description="Cross-node background task orchestration with pluggable queue and store backends." />
 </CardGrid>
 
-### Embedded in-memory servers *EXPERIMENTAL*
+### Embedded in-memory servers (experimental)
 
 Libraries where the framework launches and manages the server process as part of the app lifecycle.
 
@@ -81,7 +82,7 @@ Libraries where the framework launches and manages the server process as part of
 
 ## Installation
 
-Winter libraries are distributed as separate Composer packages so you install only what you need, and some libraries require additional PHP extensions. Follow the [Installation](/winter-boot/installation) guide (Docker is recommended) for the package list and the per-library extension matrix, then return here to pick the right library.
+Libraries ship as separate Composer packages, so you install only what you need; some also need extra PHP extensions. See [Installation](/winter-boot/installation) for the package list and the extensions each library needs.
 
 ## Enabling a library
 
@@ -91,7 +92,7 @@ Every library plugs in through the same [module system](/winter-boot/core/module
 modules:
     - module: 'dev\winterframework\kafka\KafkaModule'
       enabled: true
-      configFile: 'config/kafka-config.yml'
+      configFile: kafka-config.yml
 ```
 
 Read [The Module System](/winter-boot/core/module-system) for the full contract, load order, and how to build your own modules.

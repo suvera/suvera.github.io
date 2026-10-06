@@ -220,7 +220,7 @@ never sees it.
 - Build the SPA (`npm run build`) and serve the static files from Nginx or a
   CDN — never from the app process.
 - Proxy `/api/*` to the Winter Boot port (`8080` in these guides) with
-  `changeOrigin`-equivalent behaviour, preserving cookies and paths.
+  `changeOrigin`-equivalent behavior, preserving cookies and paths.
 - Keep Winter Boot bound to localhost or an internal interface; only the proxy
   faces the internet.
 - Secrets stay server-side: the bundle may hold the `/api` path prefix, never

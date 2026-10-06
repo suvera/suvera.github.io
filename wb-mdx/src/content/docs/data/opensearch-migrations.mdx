@@ -69,15 +69,13 @@ Winter Boot's OpenSearch migration runner applies JSON-based index templates, IS
 
 1. **Run migrations**
 
-   ```bash
-   # Using the PHAR built with build/sqlmigrator/build.sh
-   ./winter-migrations-app.phar -c /path/to/config --sqlPath /path/to/migrations -m opensearch
+   Use the same runner script as for [SQL migrations](/winter-boot/data/migrations#quick-start), adding `-m opensearch`:
 
-   # Or using PHP CLI directly
-   php bin/migrate.php -c /path/to/config --sqlPath /path/to/migrations -m opensearch
+   ```bash
+   php bin/migrate.php --configDir /path/to/config --sqlPath /path/to/migrations -m opensearch
    ```
 
-   Omit `-m` (or pass `-m sql`) to run SQL migrations instead. The `--sqlPath` argument is the shared migrations root for both types.
+   Omit `-m` (or pass `-m sql`) to run SQL migrations instead. `--sqlPath` is the shared migrations root for both types.
 
 
 
@@ -130,5 +128,5 @@ Every operation is also safe to replay:
 
 ## Notes
 
-- The HTTP client is self-contained (no `opensearch-php` dependency). It uses the Swoole coroutine HTTP client inside a Swoole coroutine (the same approach as the winter-opensearch `SwooleHttpHandler`), cURL when available, and the PHP stream wrapper as a fallback. Hosts are tried in order on transport failure.
-- First failure stops all migrations. There is no automatic rollback, matching the SQL migration behaviour.
+- The HTTP client is self-contained (no `opensearch-php` dependency). It uses the Swoole coroutine HTTP client inside a Swoole coroutine cURL when available, and the PHP stream wrapper as a fallback. Hosts are tried in order on transport failure.
+- First failure stops all migrations. There is no automatic rollback, matching the SQL migration behavior.

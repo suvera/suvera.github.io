@@ -3,12 +3,12 @@ title: "Call Google Gemini AI in Winter Boot"
 sidebar:
   label: "Gemini AI"
   order: 8
-description: "Connect a Winter Boot app to Google Gemini: summarisation and Q&A over the REST API."
+description: "Connect a Winter Boot app to Google Gemini: summarization and Q&A over the REST API."
 ---
 
 import { Aside, Card, CardGrid, Tabs, TabItem } from '@astrojs/starlight/components';
 
-Adding AI features — summarising tickets, drafting replies, classifying feedback — means calling Google's Gemini API. This guide calls the `generateContent` REST endpoint with Winter Boot's built-in [`RestTemplate`](/winter-boot/web/rest-template): no extra packages, and error messages that strip query strings (which is where the API key travels, as `?key=`).
+Adding AI features — summarizing tickets, drafting replies, classifying feedback — means calling Google's Gemini API. This guide calls the `generateContent` REST endpoint with Winter Boot's built-in [`RestTemplate`](/winter-boot/web/rest-template): no extra packages, and error messages that strip query strings (which is where the API key travels, as `?key=`).
 
 ## 1. Prerequisites
 
@@ -191,7 +191,7 @@ Two files: a service owning the API call (dedicated long-timeout client, respons
 ## 4. Verify it works
 
 1. Set `GEMINI_API_KEY` and boot the app.
-2. `curl -X POST 'http://127.0.0.1:8080/assist/ask?prompt=Summarise+this+in+five+words%3A+the+cat+sat+on+the+mat'` → `200` with an answer.
+2. `curl -X POST 'http://127.0.0.1:8080/assist/ask?prompt=Summarize+this+in+five+words%3A+the+cat+sat+on+the+mat'` → `200` with an answer.
 3. Unset the key and retry → `502` with `AI request rejected.` and no key material in logs or response.
 4. Unit-test `ask()` with a fake `RestClientTransport` returning canned JSON (the [RestTemplate](/winter-boot/web/rest-template) testing pattern) — no network in tests.
 

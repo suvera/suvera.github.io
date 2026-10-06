@@ -7,7 +7,7 @@ description: "Set up service discovery in Winter Boot with Consul.io or Netflix 
 
 import { Steps } from '@astrojs/starlight/components';
 
-Winter Eureka is a module that provides easy configuration and access to service discovery functionality from Winter Boot applications. It supports both [Consul.io](https://www.consul.io/use-cases/service-discovery-and-health-checking) and [Netflix Eureka](https://github.com/Netflix/eureka), and requires the `swoole` PHP extension.
+Winter Eureka connects Winter Boot applications to a service registry. It supports both [Consul.io](https://www.consul.io/use-cases/service-discovery-and-health-checking) and [Netflix Eureka](https://github.com/Netflix/eureka), and requires the `swoole` PHP extension.
 
 ## Setup
 
@@ -22,7 +22,7 @@ Winter Eureka is a module that provides easy configuration and access to service
 
    Append the following block to your `application.yml`:
 
-   ```yaml
+   ```yaml title="application.yml"
    modules:
        - module: dev\winterframework\eureka\EurekaModule
          enabled: true
@@ -38,7 +38,7 @@ Winter Eureka is a module that provides easy configuration and access to service
 
 Create `eureka-config.yml` in your config directory. The file supports configuring connections for both Consul.io and Netflix Eureka.
 
-```yaml
+```yaml title="config/eureka-config.yml"
 # Consul.io
 consul:
     -   name: consulBean01
@@ -64,18 +64,15 @@ eureka:
         credentials:
         credentialFile:
         ignoreSsl:
-
-# End
 ```
 
 ## Autowiring
 
-Service and client beans defined in `eureka-config.yml` can be autowired into your PHP classes:
+Each entry in `eureka-config.yml` becomes a bean named after its `name`. Autowire it by that name:
 
 ```php
 #[Autowired('consulBean01')]
 protected DiscoveryClient $discoveryClient;
-
 
 #[Autowired('netflixBean01')]
 protected EurekaClient $eurekaClient;

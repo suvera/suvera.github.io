@@ -7,7 +7,7 @@ description: "Understand the WinterModule contract and #[Module] attribute that 
 
 import { Aside, CardGrid, LinkCard, Steps } from '@astrojs/starlight/components';
 
-Winter Boot's module system gives you a clean, attribute-driven mechanism for bundling infrastructure integrations — Redis, Kafka, Doctrine ORM, service discovery, and more — as self-contained, reusable units. Modules are discovered and loaded before the application starts, so each module can register its own beans, scan additional namespaces, and run any required initialisation without touching your application code. The `WinterModule` interface keeps the contract minimal: implement two lifecycle hooks and annotate your class with `#[Module]`.
+Modules package infrastructure integrations — Redis, Kafka, Doctrine ORM, service discovery, and more — as reusable units. Each module can register its own beans, add namespaces to the scan, and run its own setup without any changes to your application code. The contract is small: implement the two `WinterModule` hooks and annotate the class with `#[Module]`.
 
 ## The `WinterModule` Interface
 
@@ -25,7 +25,7 @@ class MyCustomModule implements WinterModule {
      * Register beans, validate configuration, check required extensions here.
      */
     public function init(ApplicationContext $ctx, ApplicationContextData $ctxData): void {
-        // initialise resources
+        // set up resources
     }
 
     /**
@@ -68,13 +68,13 @@ class MyCustomModule implements WinterModule {
 
 ## Enabling Modules in `application.yml`
 
-Declare modules in your `application.yml` under the top-level `modules` key. Each entry requires a `module` class name and an `enabled` flag.
+Declare modules in your `application.yml` under the top-level `modules` key. Each entry requires a `module` class name and an `enabled` flag. Most modules also need a `configFile`: a relative name is looked up in your config directories (so `kafka-config.yml`, not `config/kafka-config.yml`), and an absolute path is used as is. The file is read by the module itself; its keys are not added to `application.yml` properties.
 
 ```yaml title="application.yml"
 modules:
   - module: 'dev\winterframework\telemetry\OpenTelemetryModule'
     enabled: true
-    configFile: 'config/telemetry.yml'   # optional path to module-specific config
+    configFile: telemetry.yml   # module config file, looked up in the config directory
 
   - module: 'dev\winterframework\data\redis\RedisModule'
     enabled: true
@@ -94,7 +94,7 @@ All official modules live in the `suvera/winter-modules` monorepo. Install the e
 See the [Modules overview](/winter-boot/modules/overview) for a full catalog with guidance on which module to pick for which use case.
 
 <CardGrid>
-  <LinkCard title="Doctrine" href="/winter-boot/modules/doctrine" description="Doctrine ORM and DBAL for entity management, DBAL, and multi-tenant datasources." />
+  <LinkCard title="Doctrine" href="/winter-boot/modules/doctrine" description="Doctrine ORM and DBAL for entity management and multi-tenant datasources." />
 
   <LinkCard title="Redis" href="/winter-boot/modules/data-redis" description="PhpRedis client templates for singles, clusters, arrays, sentinels, and token rings." />
 
@@ -112,9 +112,9 @@ See the [Modules overview](/winter-boot/modules/overview) for a full catalog wit
 
   <LinkCard title="Eureka" href="/winter-boot/modules/eureka" description="Service discovery via Consul and Netflix Eureka." />
 
-  <LinkCard title="Memdb" href="/winter-boot/modules/memdb" description="Embedded in-memory servers (Redis, Ignite, Memcached, Hazelcast) managed by the app lifecycle. *EXPERIMENTAL*" />
+  <LinkCard title="Memdb" href="/winter-boot/modules/memdb" description="Embedded in-memory servers (Redis, Ignite, Memcached, Hazelcast) managed by the app lifecycle (experimental)." />
 
-  <LinkCard title="Security" href="/winter-boot/modules/security" description="Application security policies for Winter Boot applications." />
+  <LinkCard title="Security (planned)" href="/winter-boot/modules/security" description="Reserved for a future application security module; no code ships yet." />
   
 </CardGrid>
 
@@ -163,7 +163,7 @@ Package any infrastructure concern — a third-party SDK, a custom cache layer, 
        $ctxData->getBeanProvider()->registerInternalBean(
            $client,
            AcmeClient::class,
-           true          // mark as primary bean
+           true          // replace any bean already registered for this class
        );
    }
    ```
@@ -172,7 +172,7 @@ Package any infrastructure concern — a third-party SDK, a custom cache layer, 
 
 1. **Read module configuration**
 
-   The framework passes the raw `moduleDef` YAML entry to your `#[Module]` attribute. Use the `ModuleTrait` helper to retrieve it:
+   The framework passes the module's `application.yml` entry (including any `configFile`) to your `#[Module]` attribute. Use the `ModuleTrait` helper to load it:
 
    ```php
    use dev\winterframework\util\ModuleTrait;
@@ -198,12 +198,14 @@ Package any infrastructure concern — a third-party SDK, a custom cache layer, 
    modules:
      - module: 'Acme\MyModule\AcmeMyModule'
        enabled: true
-       configFile: 'config/acme.yml'
+       configFile: acme.yml
    ```
 
 
 
-1. **Install via Composer**
+1. **Publish it as a Composer package**
+
+   Publish the module as its own package so applications can add it with a single command:
 
    ```bash
    composer require acme/my-winter-module

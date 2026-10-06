@@ -105,13 +105,13 @@ The `$responseType` argument controls conversion:
 
 - `'array'` (default): JSON-decoded associative array.
 - `'string'`: raw body, untouched.
-- A class name: JSON decoded, then mapped via `ObjectCreator` (honours `#[JsonProperty]`).
+- A class name: JSON decoded, then mapped via `ObjectCreator` (honors `#[JsonProperty]`; see [JSON & XML](/winter-boot/advanced/json-xml)).
 
 An empty body maps to `null`.
 
 ## Errors
 
-By default, 4xx responses throw `HttpClientErrorException` and 5xx throw `HttpServerErrorException` (both extend `RestClientException`, which is a `RuntimeException`). The exception carries the status code, response headers and body via getters; its message contains only the method, the query-stripped URL and the status line, so tokens in query strings or bodies never leak into logs.
+By default, 4xx responses throw `HttpClientErrorException` and 5xx throw `HttpServerErrorException` (both extend `RestClientException`, which is a `RuntimeException`). The exception carries the status code, response headers, and body via getters; its message contains only the method, the URL without its query string, and the status line, so tokens in query strings or bodies never leak into logs.
 
 ```php
 use dev\winterframework\web\client\HttpClientErrorException;
@@ -150,7 +150,7 @@ winter:
 
 ## Transports and testing
 
-`RestTemplate` delegates I/O to a `RestClientTransport`. The default transport picks its engine at runtime: the non-blocking coroutine client inside a Swoole coroutine, cURL when available, plain PHP streams otherwise — so the same bean works from request handlers, CLI commands and tests.
+`RestTemplate` delegates I/O to a `RestClientTransport`. The default transport picks its engine at runtime: Swoole's coroutine HTTP client inside a coroutine, cURL when available, plain PHP streams otherwise — so the same bean works from request handlers, CLI commands, and tests.
 
 Unit tests should inject a fake transport instead of touching the network:
 
@@ -160,5 +160,5 @@ $template = new RestTemplate($fake);
 ```
 
 <Aside type="note">
-  `RestTemplate` performs blocking I/O on the calling coroutine/thread. For fan-out calls that must overlap, dispatch them through `#[Async]` service methods rather than awaiting them one by one.
+  Each `RestTemplate` call waits for its response before returning. To run several slow calls in parallel, dispatch them through [`#[Async]`](/winter-boot/async/async-tasks) service methods instead of making them one after another.
 </Aside>

@@ -2,16 +2,16 @@
 title: "Winter Boot AOP: Aspect-Oriented Programming Guide"
 sidebar:
   label: "AOP"
-description: "Add transactions, caching, and async execution to Winter Boot beans using PHP 8 AOP attributes and the WinterAspect interceptor pipeline."
+description: "Use built-in AOP attributes for transactions, caching, locking, async, scheduling, and tracing, and write your own attributes with the WinterAspect interceptor pipeline."
 ---
 
 import { Aside, Steps } from '@astrojs/starlight/components';
 
-Aspect-Oriented Programming (AOP) lets you attach behaviour to method calls without modifying the method itself. In Winter Boot, AOP is expressed entirely through PHP 8 attributes. When the container detects an AOP attribute on a managed bean's method, it wraps that method with an interceptor chain. The original method body only runs if every interceptor in the chain allows it — making it trivial to enforce security checks, manage transactions, or add caching with a single attribute. All AOP contracts live in the `dev\winterframework\stereotype\aop\` namespace.
+Aspect-Oriented Programming (AOP) lets you attach behavior to method calls without changing the method itself. In Winter Boot, AOP is expressed entirely through PHP 8 attributes. When the container finds an AOP attribute on a bean method, it wraps that method in an interceptor chain. The method body only runs if every interceptor allows it, so a single attribute can enforce a security check, manage a transaction, or cache a result. All AOP contracts live in the `dev\winterframework\stereotype\aop\` namespace.
 
 ## Built-in AOP attributes
 
-Winter Boot ships several ready-to-use AOP attributes. Enable the corresponding module in your `#[WinterBootApplication]` class before using any of them.
+Winter Boot ships several ready-to-use AOP attributes. Some of them must first be switched on with an `#[Enable...]` attribute on your `#[WinterBootApplication]` class, as noted below.
 
 
 
@@ -34,8 +34,8 @@ class OrderService {
 ```
 
 <Aside type="note">
-  Requires `#[EnableTransactionManagement]` on your application class. See the
-  Transactions guide for full configuration.
+  Requires `#[EnableTransactionManagement]` on your application class. See
+  [Transactions](/winter-boot/data/transactions) for full configuration.
 </Aside>
 
 </details>
@@ -51,7 +51,7 @@ use dev\winterframework\cache\stereotype\Cacheable;
 #[Service]
 class ProductCatalog {
 
-    #[Cacheable(cacheName: "products", key: "#id")]
+    #[Cacheable(cacheNames: "products")]
     public function findProduct(int $id): Product {
         // Expensive DB lookup — only runs on cache miss
     }
@@ -59,8 +59,8 @@ class ProductCatalog {
 ```
 
 <Aside type="note">
-  Requires `#[EnableCaching]` on your application class. See the Caching guide
-  for full configuration.
+  Requires `#[EnableCaching]` on your application class. See
+  [Caching](/winter-boot/ops/caching) for full configuration.
 </Aside>
 
 </details>
@@ -84,7 +84,7 @@ class InventoryService {
 ```
 
 <Aside type="note">
-  See the Locking guide for configuration details.
+  See [Locking](/winter-boot/ops/locking) for configuration details.
 </Aside>
 
 </details>
@@ -108,8 +108,8 @@ class EmailService {
 ```
 
 <Aside type="note">
-  Requires `#[EnableAsync]` on your application class. See the Async Tasks guide
-  for full configuration.
+  Requires `#[EnableAsync]` on your application class. See
+  [Async Tasks](/winter-boot/async/async-tasks) for full configuration.
 </Aside>
 
 </details>
@@ -117,7 +117,7 @@ class EmailService {
 <details>
 <summary>#[Scheduled]</summary>
 
-Marks a method to be called on a fixed schedule. Supports fixed delay, fixed rate, and initial delay in milliseconds.
+Calls a method on a fixed schedule. Supports fixed delay, fixed rate, and an initial delay, all in seconds.
 
 ```php title="ReportGenerator.php"
 use dev\winterframework\task\scheduling\stereotype\Scheduled;
@@ -125,7 +125,7 @@ use dev\winterframework\task\scheduling\stereotype\Scheduled;
 #[Service]
 class ReportGenerator {
 
-    #[Scheduled(fixedRate: 60000, initialDelay: 5000)]
+    #[Scheduled(fixedRate: 60, initialDelay: 5)]
     public function generateDailyReport(): void {
         // Called every 60 seconds, first run after 5 seconds
     }
@@ -133,8 +133,8 @@ class ReportGenerator {
 ```
 
 <Aside type="note">
-  Requires `#[EnableScheduling]` on your application class. See the Scheduling
-  guide for full configuration.
+  Requires `#[EnableScheduling]` on your application class. See
+  [Scheduling](/winter-boot/async/scheduling) for full configuration.
 </Aside>
 
 </details>
@@ -142,9 +142,11 @@ class ReportGenerator {
 <details>
 <summary>#[Traceable]</summary>
 
-Instruments the method with distributed tracing spans, recording start time, duration, and any exceptions for observability tooling.
+Wraps the method in a distributed-tracing span that records its duration and any exception.
 
 ```php title="CheckoutService.php"
+use dev\winterframework\telemetry\stereotype\Traceable;
+
 #[Service]
 class CheckoutService {
 
@@ -156,7 +158,7 @@ class CheckoutService {
 ```
 
 <Aside type="note">
-  See the Telemetry guide for full configuration.
+  See [Telemetry](/winter-boot/ops/telemetry) for full configuration.
 </Aside>
 
 </details>
@@ -345,11 +347,9 @@ You can create your own AOP attributes using two components: an **attribute clas
 
 ## AOP on controllers
 
-In a `#[RestController]`, put AOP attributes only on endpoint methods — the methods marked with `#[GetMapping]`, `#[PostMapping]`, or the other mapping attributes. 
-Those methods run when someone calls their URL, and your advice runs along with them.
+In a `#[RestController]`, put AOP attributes only on endpoint methods — the methods marked with `#[GetMapping]`, `#[PostMapping]`, or the other mapping attributes. Those methods run when someone calls their URL, and your advice runs with them.
 
-Do not put AOP attributes on plain helper methods inside a controller. Helpers run as ordinary method calls, so your advice will simply never run for them — the attribute 
-sits there doing nothing, with no error to tell you. If a helper needs guarding, move that logic into a `#[Service]` bean instead, where AOP works on every public method.
+Do not put AOP attributes on plain helper methods inside a controller. Helpers run as ordinary method calls, so the advice never runs for them — and nothing warns you. If a helper needs guarding, move that logic into a `#[Service]` bean, where AOP works on every public method.
 
 ---
 
@@ -364,6 +364,21 @@ The five methods of `WinterAspect` form the interceptor pipeline around every me
 | `commit(ctx, exCtx, result)` | After the method body succeeds | Caching the result, committing transactions |
 | `commitFailed(ctx, exCtx, result, ex)` | When `commit()` throws | Rolling back a partial commit |
 | `failed(ctx, exCtx, ex)` | When the method body throws | Rolling back transactions, releasing locks, logging errors |
+
+### Commit failures
+
+By default, an exception thrown from an aspect's `commit()` is passed to `commitFailed()`, logged, and swallowed — the caller still receives the method's result. That is the right behavior for side concerns such as caching or tracing.
+
+When a commit failure means the work was **not** saved (a transaction that could not commit, for example), implement the `PropagatesCommitFailure` marker interface on your aspect. Every aspect's `commit()`/`commitFailed()` still runs, and then the first failure from a propagating aspect is rethrown to the caller. The built-in transaction aspect works this way.
+
+```php title="OutboxAspect.php"
+use dev\winterframework\stereotype\aop\PropagatesCommitFailure;
+use dev\winterframework\stereotype\aop\WinterAspect;
+
+class OutboxAspect implements WinterAspect, PropagatesCommitFailure {
+    // begin(), commit(), ... as usual
+}
+```
 
 ---
 

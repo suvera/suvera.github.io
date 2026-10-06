@@ -7,7 +7,7 @@ description: "Configure and use Doctrine ORM and DBAL in Winter Boot. Covers ent
 
 import { Aside } from '@astrojs/starlight/components';
 
-Winter Doctrine is a module that provides easy configuration and access to Doctrine ORM and DBAL functionality inside Winter Boot applications.
+Winter Doctrine integrates Doctrine ORM and DBAL with Winter Boot: it builds entity managers and connections from your existing `datasource` entries, plugs them into Winter Boot transactions, and keeps them safe under the multi-request Swoole server.
 
 <Aside type="tip">
   Framework datasource, migration, and transaction basics are covered in [Databases and Datasources](/winter-boot/data/database), [Migrations](/winter-boot/data/migrations), and [Transactions](/winter-boot/data/transactions). This page covers Doctrine ORM/DBAL specifics.
@@ -17,9 +17,9 @@ Winter Doctrine is a module that provides easy configuration and access to Doctr
 
 Install the package as described in the [Installation](/winter-boot/installation) guide (`suvera/winter-doctrine` alongside `suvera/winter-boot`; Docker is recommended).
 
-Enable the module in `application.yml`:
+Enable the module in `application.yml` (it reads the `datasource` entries, so no `configFile` is needed):
 
-```yaml
+```yaml title="application.yml"
 modules:
     - module: dev\winterframework\doctrine\DoctrineModule
       enabled: true
@@ -27,7 +27,7 @@ modules:
 
 ## application.yml
 
-In your `application.yml` you can configure datasources with a `doctrine` block under each entry. The example below defines two datasources named `defaultdb` (primary) and `admindb`:
+Add a `doctrine` block to each [datasource](/winter-boot/data/database) entry you want Doctrine to manage. The example below defines two datasources named `defaultdb` (primary) and `admindb`:
 
 ```yaml
 datasource:
@@ -64,7 +64,6 @@ datasource:
             columnsCase: CASE_NATURAL
             idleTimeout: 300
             autoCommit: true
-            defaultrowprefetch: 100
 ```
 
 ## Autowired bean naming
@@ -81,6 +80,8 @@ ORM and DBAL beans are created automatically and can be autowired by name. The s
 ## ORM EntityManager
 
 ```php
+use Doctrine\ORM\EntityManager;
+
 // ORM - Primary (defaultdb)
 #[Autowired]
 private EntityManager $defaultEm;
@@ -95,6 +96,8 @@ private EntityManager $adminEm;
 ## ORM Transaction Managers
 
 ```php
+use dev\winterframework\doctrine\orm\EmTransactionManager;
+
 // ORM - Primary Transaction Manager (defaultdb)
 #[Autowired]
 private EmTransactionManager $defaultTxnManager;
@@ -109,6 +112,8 @@ private EmTransactionManager $adminTxnManager;
 ## DBAL Connection
 
 ```php
+use Doctrine\DBAL\Connection;
+
 // DBAL Connection - Primary (defaultdb)
 #[Autowired]
 private Connection $defaultConn;
@@ -123,6 +128,8 @@ private Connection $adminConn;
 ## DBAL Transaction Managers
 
 ```php
+use dev\winterframework\doctrine\dbal\DbalTransactionManager;
+
 // DBAL - Primary Transaction Manager (defaultdb)
 #[Autowired]
 private DbalTransactionManager $defaultTxnManager;
@@ -134,7 +141,7 @@ private DbalTransactionManager $defaultTxnManager;
 private DbalTransactionManager $adminTxnManager;
 ```
 
-## Swoole: one fresh EntityManager per request (automatic)
+## One fresh EntityManager per request (automatic)
 
 Think of the `EntityManager` as a notebook. It remembers every database row
 your code has touched, so it does not have to ask the database twice. That
@@ -165,14 +172,13 @@ unchanged. Code paths that never touch the database allocate nothing, and
 short-lived CLI scripts behave exactly as before.
 
 <Aside type="tip">
-  You can turn the whole thing off with one flag (it is on under Swoole and
-  off without it). This is the kill switch if you ever need the old behavior:
+  It is on under Swoole and off without it. To switch it off (not recommended), set:
 
   ```yaml
   winter:
       coroutine:
           db:
-              enabled: true
+              enabled: false
   ```
 </Aside>
 
@@ -265,7 +271,7 @@ Four rules to stay out of trouble:
 
 ### Declarative Transactions (AOP)
 
-Executing something under ORM/DBAL transaction is easy by just using `#[Transactional]`:
+Run a method in an ORM or DBAL transaction with `#[Transactional]`, naming the Doctrine transaction manager bean (and enable `#[EnableTransactionManagement]` on your application class):
 
 ```php
 #[Autowired("admindb-doctrine-em")]
@@ -480,7 +486,7 @@ class UserDbalService {
 
 ## Multi-Tenant Support
 
-Winter Doctrine provides native support for multi-tenancy via `MultiTenantManager` and `TenantDataSourceProvider` (from Winter Boot), allowing per-tenant `EntityManager`, `Connection`, and transaction manager instances.
+Winter Doctrine supports multi-tenancy through `MultiTenantManager` and `TenantDataSourceProvider` (from Winter Boot), allowing per-tenant `EntityManager`, `Connection`, and transaction manager instances.
 
 ### Configuration via application.yml
 
@@ -493,53 +499,49 @@ multitenant-datasource:
       migrations:
           enabled: true
       providerClass: "App\\Config\\MyTenantDataSourceProvider"
+      doctrine:
+          entityPaths:
+              - /path/to/tenant/entities
 ```
 
 When configured, Winter Doctrine automatically initializes and registers a `MultiTenantManager` bean named `<name>-manager` (for example, `tenantdb-manager`) in the application context.
 
 ### Step 1: Implement TenantDataSourceProvider
 
-Create a `#[Configuration]` class that returns your implementation of `TenantDataSourceProvider`:
+`providerClass` must be a class that implements `TenantDataSourceProvider` (from Winter Boot). It tells the module how to connect to a tenant, and which tenants exist (used by migrations):
 
-```php
+```php title="App/Config/MyTenantDataSourceProvider.php"
+namespace App\Config;
+
 use dev\winterframework\pdbc\datasource\DataSourceConfig;
-use dev\winterframework\stereotype\Autowired;
-use dev\winterframework\stereotype\Bean;
-use dev\winterframework\stereotype\Configuration;
-use dev\winterframework\doctrine\orm\EntityManager;
 use dev\winterframework\pdbc\multitenant\TenantDataSourceProvider;
+use dev\winterframework\stereotype\Autowired;
+use dev\winterframework\stereotype\Component;
+use Doctrine\DBAL\Connection;
 
-#[Configuration]
-class MyTenantDataSourceProvider {
+#[Component]
+class MyTenantDataSourceProvider implements TenantDataSourceProvider {
 
-    #[Autowired("admindb-doctrine-em")]
-    private EntityManager $adminEm;
+    // A regular (non-tenant) datasource that holds the tenant registry
+    #[Autowired("admindb-doctrine-dbal")]
+    private Connection $admin;
 
-    #[Bean]
-    public function getTenantDataSourceProvider(): TenantDataSourceProvider {
-        return new class implements TenantDataSourceProvider {
-            public function getTenantDataSourceConfig(string $tenantId): DataSourceConfig {
-                // Query your admin database (or any config store) for this tenant
-                // $tenant = $this->adminEm->find(Tenant::class, $tenantId);
-                // $dbHost = $tenant->dbHost;
-                // $dbPort = $tenant->dbPort;
-                // $username = $tenant->username;
-                // $dbName = $tenant->database;
+    public function getTenantDataSourceConfig(string $tenantId): DataSourceConfig {
+        $t = $this->admin->fetchAssociative(
+            'SELECT db_host, db_port, db_name, db_user, db_pass FROM tenants WHERE tenant_id = :id',
+            ['id' => $tenantId]
+        );
 
-                $config = new DataSourceConfig();
-                $config->setName($tenantId);
-                $config->setUrl("mysql:host=localhost;port=3306;dbname=tenant_{$tenantId}_db");
-                $config->setUsername("tenant_user");
-                $config->setPassword("tenant_pass");
-                return $config;
-            }
+        $config = new DataSourceConfig();
+        $config->setName($tenantId);
+        $config->setUrl("mysql:host={$t['db_host']};port={$t['db_port']};dbname={$t['db_name']}");
+        $config->setUsername($t['db_user']);
+        $config->setPassword($t['db_pass']);
+        return $config;
+    }
 
-            public function getTenantDataSourceConfigs(int $offset, int $limit): array {
-                // Return a list of tenant configurations (optional)
-                // Used for batch operations or tenant management
-                return [];
-            }
-        };
+    public function getAllTenantIds(): array {
+        return $this->admin->fetchFirstColumn("SELECT tenant_id FROM tenants WHERE status = 'Active'");
     }
 }
 ```
@@ -567,6 +569,7 @@ class TenantOrderService {
         // Get tenant-specific TransactionManager
         $txnMgr = $this->mt->getEmTransactionManager($tenantId);
 
+        $order = new Order($orderData);
         $em->persist($order);
         $em->flush();
     }

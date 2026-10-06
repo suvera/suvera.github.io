@@ -45,6 +45,7 @@ export default defineConfig({
             credits: false,
             components: {
                 Footer: './src/components/CustomFooter.astro',
+                SocialIcons: './src/components/SocialIcons.astro',
             },
             customCss: ['/src/styles/custom.css'],
             social: [
@@ -57,16 +58,29 @@ export default defineConfig({
             sidebar: [
                 {
                     label: 'Start Here',
-                    items: ['introduction', 'quickstart', 'installation', 'configuration'],
+                    items: ['introduction', 'installation', 'quickstart', 'configuration'],
                 },
                 { label: 'Core', items: [{ autogenerate: { directory: 'core' } }] },
                 { label: 'Web', items: [{ autogenerate: { directory: 'web' } }] },
                 { label: 'Data', items: [{ autogenerate: { directory: 'data' } }] },
                 { label: 'Async', items: [{ autogenerate: { directory: 'async' } }] },
                 { label: 'Operations', items: [{ autogenerate: { directory: 'ops' } }] },
-                { label: 'Building', items: [{ autogenerate: { directory: 'building' } }] },
-                { label: 'Utilities', items: [{ autogenerate: { directory: 'advanced' } }] },
-                { label: 'Modules', items: [{ autogenerate: { directory: 'modules' } }] },
+                // Listed explicitly so pages can be grouped by topic without
+                // moving files (moving them would change published URLs).
+                {
+                    label: 'Testing & Deployment',
+                    items: ['building/testing', 'advanced/build-deploy'],
+                },
+                {
+                    label: 'Advanced',
+                    items: [
+                        'advanced/json-xml',
+                        'advanced/local-stores',
+                        'advanced/native-extension',
+                        'building/utilities',
+                    ],
+                },
+                { label: 'Libraries', items: [{ autogenerate: { directory: 'modules' } }] },
                 { label: 'Examples', items: [{ autogenerate: { directory: 'examples' } }] },
                 { label: 'How To', items: [{ autogenerate: { directory: 'howto' } }] },
                 {

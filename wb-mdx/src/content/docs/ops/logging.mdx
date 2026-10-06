@@ -2,16 +2,16 @@
 title: "Configure Structured Logging in Your Winter Boot App"
 sidebar:
   label: "Logging"
-description: "Add the Wlf4p trait for zero-boilerplate structured logging, then tune log levels per class or namespace with a Monolog-backed logger.yml file."
+description: "Log from any class with the Wlf4p trait, trace HTTP requests, and tune Monolog handlers and per-class log levels in logger.yml."
 ---
 
 import { Aside } from '@astrojs/starlight/components';
 
-Winter Boot uses Monolog as its logging engine and wraps it with the `Wlf4p` trait so that every class in your application gains a consistent, zero-boilerplate logging API. The trait resolves the correct logger and log level for each class automatically — including any per-class or per-namespace level overrides you define in `logger.yml` — so you never have to manage logger instances directly.
+Winter Boot logs through Monolog. Add the `Wlf4p` trait to a class and it gets a ready-made logging API: the trait picks the right logger and log level for the class — including per-class or per-namespace overrides from `logger.yml` — so you never manage logger instances yourself.
 
 ## The Wlf4p Trait
 
-Add `use Wlf4p;` to any class to access the full suite of logging methods. All methods are **static**, but because PHP traits inherit `static::class`, they log under the name of the calling class, not the trait itself.
+Add `use Wlf4p;` to any class to get the logging methods. They are **static** (call them as `self::logInfo(...)`), and each record is logged under the name of the class that uses the trait.
 
 ### Available Methods
 
@@ -56,13 +56,13 @@ class OrderService
 
     public function processOrder(int $orderId): void
     {
-        $this->logInfo('Processing order', ['orderId' => $orderId]);
+        self::logInfo('Processing order', ['orderId' => $orderId]);
 
         try {
             // … business logic …
-            $this->logDebug('Order processed successfully', ['orderId' => $orderId]);
+            self::logDebug('Order processed successfully', ['orderId' => $orderId]);
         } catch (\Throwable $e) {
-            $this->logException($e, 'Failed to process order: ');
+            self::logException($e, 'Failed to process order: ');
         }
     }
 }
@@ -87,11 +87,11 @@ TRACE FINISH POST /api/orders -> 200 (41.0 ms)
 - The `START` line is emitted the instant a request reaches the dispatcher (method + URI only — no status or duration exists yet).
 - The `FINISH` line is emitted on completion, whether the request succeeded or failed (method + URI + response status + time taken).
 - A `START` line with no matching `FINISH` means the worker died mid-request — itself a useful signal.
-- Only safe metadata is logged: the URI is sanitised (control characters stripped, length capped). Headers, bodies, and query values are never logged.
+- Only safe metadata is logged: the URI is sanitized (control characters stripped, length capped). Headers, bodies, and query values are never logged.
 
 ## Configuration — logger.yml
 
-Create a file named `logger.yml` in the `config` directory you specify in `WinterBootApplication`. Winter Boot loads this file at startup and configures Monolog accordingly. The configuration format follows the **monolog-cascade** schema, which lets you declare loggers, handlers, formatters, and processors entirely in YAML.
+Without any configuration, Winter Boot logs to the console (stdout). To change that, create `logger.yml` in your config directory (or `logger-{profile}.yml` when a [profile](/winter-boot/configuration#profiles) is set). The file follows the **monolog-cascade** schema, which declares loggers, handlers, formatters, and processors in YAML.
 
 ```yaml title="config/logger.yml"
 loggers:

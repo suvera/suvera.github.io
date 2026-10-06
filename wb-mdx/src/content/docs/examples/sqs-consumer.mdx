@@ -1,7 +1,7 @@
 ---
 title: "SQS Sample Application"
 sidebar:
-  label: "SQS consumer"
+  label: "SQS Consumer"
 description: "Build an end-to-end SQS consumer app with Winter Boot and the Winter SQS module that writes every message to a file, tested locally with ElasticMQ."
 ---
 
@@ -11,7 +11,7 @@ Build a consumer app that polls an SQS queue and writes every message to a file.
 
 ## Prerequisites
 
-You need PHP 8.5 or later with the `swoole` and `pcntl` extensions (see the [Installation](/winter-boot/installation) guide). You also need Docker to run ElasticMQ and the AWS CLI to create the queue and send messages.
+You need PHP 8.5 or later with the `winter_boot`, `swoole`, and `pcntl` extensions (see the [Installation](/winter-boot/installation) guide). You also need Docker to run ElasticMQ and the AWS CLI to create the queue and send messages. The `suvera/winter-modules` package also needs the `redis` extension present to install.
 
 Start ElasticMQ before you run the app:
 

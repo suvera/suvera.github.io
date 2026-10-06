@@ -7,7 +7,7 @@ description: "Use the #[Async] attribute to dispatch service methods to backgrou
 
 import { Aside } from '@astrojs/starlight/components';
 
-Winter Boot's asynchronous execution model lets you fire off any service or component method as a background task — the calling code returns immediately while a dedicated pool of worker processes handles the actual work. This non-blocking design keeps web request latency low even when individual operations are expensive, because heavy lifting happens outside the request/response cycle entirely. Under the hood, arguments are serialised into an in-memory (or Redis-backed) queue and consumed by background workers, so the concurrency model is process-based rather than thread-based.
+`#[Async]` turns a service method into a background task: the caller returns immediately while a pool of worker processes does the work. Request latency stays low even when the work is expensive, because it happens outside the request. Under the hood, the call's arguments are serialized into a shared-memory (or Redis-backed) queue and picked up by the async workers.
 
 <Aside type="tip">
   For distributed task processing across multiple nodes with persistent queues, see the [DTCE module](/winter-boot/modules/dtce). For event-driven consumers backed by Kafka or SQS, see [Kafka](/winter-boot/modules/kafka) and [SQS](/winter-boot/modules/sqs).
@@ -15,18 +15,21 @@ Winter Boot's asynchronous execution model lets you fire off any service or comp
 
 ## Prerequisites
 
-Async support is powered by a PHP extension. Install and enable it via the [Installation](/winter-boot/installation) guide before proceeding.
+Async tasks need the `swoole` extension and the `WinterWebSwooleApplication` runner. They are not available under PHP-FPM (`WinterWebApplication`). See [Installation](/winter-boot/installation).
 
 ## Enable Async on Your Application Class
 
-Add the `#[EnableAsync]` attribute to your `#[WinterBootApplication]` class. The framework validates at boot time that both attributes are present and that the extension is loaded — a `TypeError` or `AnnotationException` is thrown otherwise.
+Add the `#[EnableAsync]` attribute to your `#[WinterBootApplication]` class. Without it, `#[Async]` attributes are ignored and the methods run synchronously. If the `swoole` extension is missing, startup fails with an `AnnotationException`.
 
 ```php title="MyApplication.php"
 use dev\winterframework\stereotype\WinterBootApplication;
 use dev\winterframework\stereotype\task\EnableAsync;
-use dev\winterframework\web\WinterWebSwooleApplication;
+use dev\winterframework\core\app\WinterWebSwooleApplication;
 
-#[WinterBootApplication(scanPackages: ['com\example'])]
+#[WinterBootApplication(
+    configDirectory: [__DIR__ . '/config'],
+    scanNamespaces: [['com\\example', __DIR__ . '/src']]
+)]
 #[EnableAsync]
 class MyApplication
 {
@@ -39,7 +42,7 @@ class MyApplication
 
 ## Mark a Method as Async
 
-Annotate any `public`, non-final, non-abstract method on a `#[Service]` or `#[Component]` bean with `#[Async]`. When the method is called at runtime the framework serialises its arguments and dispatches the call to a background worker — the caller receives control back instantly.
+Annotate a `public`, non-final, non-abstract method on a `#[Service]` or `#[Component]` bean with `#[Async]`. When the method is called, the framework serializes its arguments and hands the call to a background worker — the caller gets control back immediately.
 
 ```php title="NotificationService.php"
 use dev\winterframework\stereotype\Service;
@@ -59,16 +62,16 @@ class NotificationService
 ```
 
 <Aside type="caution">
-  `#[Async]` only works on methods belonging to **service or component beans** managed by the Winter Boot container. Calling it on a plain PHP class instantiated with `new` will **not** run asynchronously — the method executes synchronously as a normal call.
+  `#[Async]` only works on methods of **beans** managed by the container. On an object created with `new`, the method runs synchronously like a normal call. It is also not allowed on `#[RestController]` classes or together with `#[Bean]` — startup fails with an `AnnotationException`. Put the async method in a service and call it from the controller.
 </Aside>
 
 ### Return Values
 
-An `#[Async]` method **must** declare a `void` return type. Because the caller does not wait for the worker to finish, there is no mechanism to return a value back to the calling code.
+An `#[Async]` method must return `void` (or declare no return type). The caller does not wait for the worker, so there is no way to return a value.
 
 ### Method Parameter Constraints
 
-The framework serialises method arguments to pass them to a worker process. Each parameter must be typed as a scalar (`int`, `float`, `string`, or `bool`). Avoid `mixed` types; the framework logs an error at boot if it encounters them.
+Arguments are serialized to reach the worker process. Every parameter must have a type, and should be a scalar (`int`, `float`, `string`, or `bool`). Other types (objects, arrays, `mixed`) log an error at startup and may not survive the trip; pass an ID and load the object inside the task instead.
 
 ```php title="ReportService.php"
 #[Service]
@@ -95,18 +98,18 @@ Configure the async worker pool in `application.yml` under `winter.task.async`:
 winter:
   task:
     async:
-      poolSize: 4          # Number of background worker processes
-      queueCapacity: 100   # Maximum concurrent async requests in the queue
-      argsSize: 2048       # Maximum serialised size (bytes) of method arguments
-      maxConcurrency: 0    # Max jobs running at once per worker, 0 = unlimited
+      poolSize: 4          # Number of background worker processes (default 1)
+      queueCapacity: 100   # Maximum queued calls (default 50)
+      argsSize: 2048       # Maximum serialized size of the arguments, in bytes (default 2048)
+      maxConcurrency: 0    # Max jobs running at once per worker, 0 = unlimited (default)
 ```
 
-- **`poolSize`** `int`
-  Total number of dedicated background worker processes to start.
-- **`queueCapacity`** `int`
-  Maximum number of async calls that can be queued and awaiting execution at any one time.
-- **`argsSize`** `int`
-  Upper limit in bytes for the combined serialised arguments of a single async call.
+- **`poolSize`** `int` (default `1`)
+  Number of background worker processes to start.
+- **`queueCapacity`** `int` (default `50`)
+  Maximum number of async calls that can wait in the queue at once.
+- **`argsSize`** `int` (default `2048`)
+  Upper limit in bytes for the serialized arguments of a single async call.
 - **`maxConcurrency`** `int` (default `0` = unlimited)
   Most jobs one async worker runs at the same time. Extra jobs wait in the queue. Set it below your database pool size when async jobs use the database.
 
@@ -135,14 +138,15 @@ winter:
 
 The following three files show a full fire-and-forget audit logging flow: the application class, the async service, and the controller that triggers it.
 
-
-
 ```php title="MyApplication.php"
 use dev\winterframework\stereotype\WinterBootApplication;
 use dev\winterframework\stereotype\task\EnableAsync;
-use dev\winterframework\web\WinterWebSwooleApplication;
+use dev\winterframework\core\app\WinterWebSwooleApplication;
 
-#[WinterBootApplication(scanPackages: ['com\example'])]
+#[WinterBootApplication(
+    configDirectory: [__DIR__ . '/config'],
+    scanNamespaces: [['com\\example', __DIR__ . '/src']]
+)]
 #[EnableAsync]
 class MyApplication
 {
@@ -173,6 +177,8 @@ class AuditService
 ```php title="UserController.php"
 use dev\winterframework\stereotype\RestController;
 use dev\winterframework\stereotype\Autowired;
+use dev\winterframework\stereotype\web\PathVariable;
+use dev\winterframework\stereotype\web\PutMapping;
 use dev\winterframework\web\http\ResponseEntity;
 
 #[RestController]
@@ -181,7 +187,8 @@ class UserController
     #[Autowired]
     private AuditService $auditService;
 
-    public function updateProfile(string $userId, string $resource): ResponseEntity
+    #[PutMapping(path: '/users/{userId}/{resource}')]
+    public function updateProfile(#[PathVariable] string $userId, #[PathVariable] string $resource): ResponseEntity
     {
         // Fire and forget — returns immediately
         $this->auditService->logActivity($userId, 'UPDATE', $resource);
@@ -194,5 +201,5 @@ class UserController
 
 
 <Aside type="tip">
-  Use async logging, email dispatch, and audit trails as your first candidates for `#[Async]`. These are high-frequency, latency-sensitive operations that have no return value and are natural fits for fire-and-forget execution.
+  Good first candidates for `#[Async]` are email sending, audit trails, and webhook calls: work that has no return value and should not slow down the response.
 </Aside>

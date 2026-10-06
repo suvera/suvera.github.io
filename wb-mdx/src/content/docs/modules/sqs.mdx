@@ -2,7 +2,7 @@
 title: "Winter SQS: AWS SQS Producer and Consumer Module"
 sidebar:
   label: "SQS"
-description: "Winter SQS adds AWS SQS send and receive capabilities to Winter Boot. Configure connections, inject SqsService, and write workers modelled after the Kafka module."
+description: "Send and consume Amazon SQS messages in Winter Boot: configure named connections, inject SqsService, write consumer workers, and use IAM roles or IRSA."
 ---
 
 import { Aside } from '@astrojs/starlight/components';
@@ -11,11 +11,11 @@ Winter SQS is an AWS SQS module for Winter Boot that provides both producer (sen
 
 ## Setup
 
-Install the modules package as described in the [Installation](/winter-boot/installation) guide (it pulls in `aws/aws-sdk-php`).
+Install `suvera/winter-modules` as described in [Installation](/winter-boot/installation) (it pulls in `aws/aws-sdk-php`).
 
 Enable the module in your **application.yml**:
 
-```yaml
+```yaml title="application.yml"
 modules:
   - module: dev\winterframework\sqs\SqsModule
     enabled: true
@@ -28,7 +28,7 @@ modules:
 
 Named connections define how to reach AWS SQS (region, credentials, and so on). At runtime you refer to a connection by name and pass the queue name separately.
 
-```yaml
+```yaml title="config/sqs-config.yml"
 sqs:
   connections:
     - name: __default__
@@ -194,7 +194,7 @@ When your application runs on AWS infrastructure (EKS, EC2, Lambda, ECS, and so 
 | connection | string | yes | - | Name of the SQS connection to use |
 | queueName | string | if `queueUrl` not given | - | SQS queue name to poll |
 | queueUrl | string | if `queueName` not given | - | Full SQS queue URL |
-| workerNum | int | no | `1` | Number of worker threads |
+| workerNum | int | no | `1` | Number of worker processes |
 | workerClass | string | yes | - | PHP class implementing `Consumer` |
 | waitTimeSeconds | int | no | `20` | Long-polling wait time (max 20) |
 | maxNumberOfMessages | int | no | `10` | Max messages per poll (max 10) |

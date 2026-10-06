@@ -7,7 +7,7 @@ description: "Set up datasources, inject PdbcTemplate, execute typed queries, ma
 
 import { Aside } from '@astrojs/starlight/components';
 
-Winter Boot's database layer wraps PHP's native PDO (and optional OCI) extensions behind the `PdbcTemplate` interface, giving you a clean, injection-friendly API for executing SQL without managing connections, prepared statements, or result-set iteration yourself. Each configured datasource automatically produces a named `PdbcTemplate` bean and a transaction manager bean you can inject anywhere in your application.
+Winter Boot's database layer wraps PHP's PDO (and, optionally, OCI8) behind the `PdbcTemplate` interface, so you can run SQL without managing connections, prepared statements, or result-set loops yourself. Each configured datasource automatically gets a `PdbcTemplate` bean and a transaction manager bean that you can inject anywhere.
 
 <Aside type="tip">
   Need full ORM entities and repositories instead of raw SQL? The [Winter Doctrine module](/winter-boot/modules/doctrine) plugs Doctrine ORM and DBAL into the same datasource configuration.
@@ -45,6 +45,15 @@ datasource:
 
 ### Top-Level Datasource Properties
 
+- **`name`** `string` (required)
+  Unique datasource name. Also used to derive bean names (`<name>-template`).
+
+- **`url`** `string` (required)
+  PDO DSN, e.g. `mysql:host=db;dbname=app`, `pgsql:host=db;dbname=app`, or `sqlite:/path/app.db`.
+
+- **`username`** / **`password`** `string` (default: `''`)
+  Credentials. Use [property sources](/winter-boot/configuration#additional-property-sources) such as `"$env.DB_PASSWORD"` to keep them out of the file.
+
 - **`isPrimary`** `bool` (default: `false`)
   Mark this datasource as the primary. The primary datasource's `PdbcTemplate` is injected with a plain `#[Autowired]` (no qualifier needed).
 
@@ -76,6 +85,14 @@ datasource:
 
 - **`rowsPrefetch`** `int` (default: `100`)
   Number of rows to prefetch. Applies to the OCI driver only.
+
+- **`maxConnections`** `int` (default: `50`)
+  Maximum connections in use from this datasource's pool. See [Connection pooling](#connection-pooling).
+
+- **`maxWaitMs`** `int` (default: `5000`)
+  How long a request waits for a free pooled connection before failing.
+
+Schema migrations for a datasource are configured with its `migrations` key — see [Migrations](/winter-boot/data/migrations).
 
 ---
 
@@ -263,7 +280,7 @@ $newId = intval($generatedKeys['id']);
 <details>
 <summary>batchUpdate — Execute a statement for multiple rows</summary>
 
-Execute the same parameterised SQL statement for multiple sets of bind variables in a single batch.
+Execute the same parameterized SQL statement for multiple sets of bind variables in a single batch.
 
 ```php
 $batchParams = [
@@ -441,7 +458,7 @@ class User implements PpaEntity {
 
 ## Multi-Tenant Support
 
-Winter Boot provides first-class multi-tenancy via `MultiTenantManager` and the `TenantDataSourceProvider` contract. Each tenant gets its own lazily-created, cached `PdbcTemplate` and `PlatformTransactionManager` backed by a separate data source resolved at runtime.
+Winter Boot supports multi-tenancy through `MultiTenantManager` and the `TenantDataSourceProvider` contract. Each tenant gets its own lazily-created, cached `PdbcTemplate` and `PlatformTransactionManager` backed by a separate data source resolved at runtime.
 
 ### Configure a Multi-Tenant Datasource
 
@@ -546,9 +563,9 @@ class OrderService {
 | `getTransactionManager(string $tenantId)` | `PlatformTransactionManager` | Returns (or lazily creates) a transaction manager for the given tenant |
 | `getTenantDataSourceProvider()` | `TenantDataSourceProvider` | Returns the configured provider instance |
 
-## Swoole: per-request connections with a safety cap
+## Connection pooling
 
-Under Swoole, every request (or job, or message) that touches the database gets its own real database connection from its datasource pool, so two concurrent requests can never share (and corrupt) one. Requests that never touch the database open none. When a request finishes, its connection goes back to the pool for the next request, after any transaction it left open is rolled back (a connection that cannot be cleaned is closed instead).
+With the built-in server, every request (or job, or message) that touches the database gets its own database connection from its datasource pool, so two concurrent requests can never share (and corrupt) one. Requests that never touch the database open none. When a request finishes, its connection goes back to the pool for the next request, after any transaction it left open is rolled back (a connection that cannot be cleaned is closed instead).
 
 Each pool is capped at **50 connections in use**. The extra connection a `REQUIRES_NEW` or `NOT_SUPPORTED` call borrows counts toward the cap but never waits for a slot, so nested calls cannot deadlock the pool (size the database for up to twice the cap if every request nests one). When all 50 are busy, the next request waits up to **5 seconds** for one to free up; if none does, it fails fast with a clear `PoolExhaustedException` instead of silently sharing a connection. The pool only sees concurrent requests in one worker when Swoole's runtime hooks are on (`server.swoole.hook_flags: SWOOLE_HOOK_ALL`, see the [application.yml reference](/winter-boot/reference/application-yml)); with the default (no hooks) every query blocks its worker. The global defaults live under `winter.coroutine.db` (on under Swoole, off without it):
 
@@ -575,5 +592,5 @@ datasource:
 How to size the cap: add up every pool (using each datasource's override where one is set), multiply by your Swoole worker count, and keep the total below the database's `max_connections` (MySQL defaults to 151, Postgres to 100). If a connection cannot be opened inside a request, the request fails with `CannotGetConnectionException`; it never falls back to a shared connection. Pool exhaustion stays loud with `PoolExhaustedException`.
 
 <Aside type="note">
-  PDO data sources set `PDO::ATTR_ORACLE_NULLS => PDO::NULL_EMPTY_STRING` for every driver, so empty strings are read back as `null` on MySQL and PostgreSQL too. This is unchanged for compatibility; compare with `empty()` / `?? ''` when a column may hold `''`.
+  PDO data sources set `PDO::ATTR_ORACLE_NULLS => PDO::NULL_EMPTY_STRING` for every driver, so empty strings are read back as `null` on MySQL and PostgreSQL too. Compare with `empty()` or `?? ''` when a column may hold `''`.
 </Aside>

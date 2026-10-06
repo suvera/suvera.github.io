@@ -7,7 +7,7 @@ description: "Learn how Winter Boot scans namespaces, builds the bean graph, fir
 
 import { Aside, Card, CardGrid, Steps } from '@astrojs/starlight/components';
 
-Every Winter Boot application begins with a single annotated class and a call to a runner. From that moment the framework scans your code, builds a complete bean graph, calls lifecycle hooks, and hands control to the runtime — whether that is the built-in HTTP server, plain PHP-FPM, a CLI tool, or a migration runner. Knowing exactly what happens at each stage helps you write correct startup code and understand why the order of `#[PostConstruct]` and `#[OnApplicationReady]` matters.
+Every Winter Boot application starts from a single annotated class and a call to a runner. The framework then scans your code, builds the bean graph, calls lifecycle hooks, and hands control to the runtime — the built-in HTTP server, PHP-FPM, or the migration runner. Knowing what happens at each stage helps you put startup code in the right place, and explains why `#[PostConstruct]` and `#[OnApplicationReady]` run when they do.
 
 ## Startup sequence
 
@@ -23,13 +23,13 @@ The container follows a fixed, deterministic sequence every time your applicatio
 
 1. **Load configuration**
 
-   The runner locates and parses every `application.yml` (and profile-specific variants) in the configured `configDirectory` paths. The merged result is available through `ApplicationContext::getProperty*()` before any bean is created.
+   The runner reads `application.yml` (or `application-{profile}.yml` when a profile is set) from every directory in `configDirectory`, merging them in order. The result is available through `ApplicationContext::getProperty*()` before any bean is created.
 
 
 
 1. **Scan namespaces**
 
-   The runner walks the PSR-4 namespaces listed in `scanNamespaces`, skipping any prefixes in `scanExcludeNamespaces`. Every class carrying a known stereotype attribute is recorded as a `ClassResource` in the registry. If `autoload` is `true`, classes that have not been loaded by Composer yet are loaded on demand during this scan.
+   The runner walks the namespaces listed in `scanNamespaces` (plus those contributed by enabled modules), skipping any prefixes in `scanExcludeNamespaces`. Every class carrying a known stereotype attribute is registered. If `autoload` is `true`, files Composer cannot autoload are `require`d during the scan.
 
 
 
@@ -47,25 +47,25 @@ The container follows a fixed, deterministic sequence every time your applicatio
 
 1. **Call #[PostConstruct] methods**
 
-   After a bean is fully constructed and its dependencies are injected, any public non-abstract method annotated with `#[PostConstruct]` is called. Use this hook for validation, connection setup, or derived-field initialisation that depends on injected values.
+   After a bean is constructed and its dependencies are injected, its `#[PostConstruct]` method is called. Use this hook for validation, connection setup, or anything else that depends on injected values.
 
 
 
 1. **Load modules**
 
-   Modules listed in `application.yml` under the `modules` key are initialised. Each module can contribute its own beans and namespaces to the context.
+   Modules enabled under the `modules` key in `application.yml` are initialized and started. See [Module System](/winter-boot/core/module-system).
 
 
 
 1. **Fire #[OnApplicationReady]**
 
-   Every bean whose class is annotated with `#[OnApplicationReady]` has its `onApplicationReady()` method called. This is the correct place for work that must happen after the entire context is ready — seeding data, starting background threads, registering routes, or opening connections.
+   Every bean whose class is annotated with `#[OnApplicationReady]` has its `onApplicationReady()` method called. This is the place for work that needs the whole context — warming caches, seeding data, or checking connections.
 
 
 
 1. **Start serving**
 
-   The runner hands off to the underlying runtime — starting the built-in HTTP server, dispatching a single PHP-FPM request, executing CLI logic, or running migrations.
+   The runner hands off to the runtime — starting the built-in HTTP server, dispatching a single PHP-FPM request, or running migrations.
 
 
 
@@ -75,62 +75,7 @@ The container follows a fixed, deterministic sequence every time your applicatio
 
 ## `#[WinterBootApplication]`
 
-The entry-point class must be annotated with `#[WinterBootApplication]`. This attribute is the single source of truth for all startup configuration.
-
-```php title="MyApplication.php"
-use dev\winterframework\stereotype\WinterBootApplication;
-use dev\winterframework\core\app\WinterWebSwooleApplication;
-
-#[WinterBootApplication(
-    // Directories searched for application.yml and logger.yml
-    configDirectory: [__DIR__ . '/../config'],
-
-    // PSR-4 namespaces to scan: [prefix, base-directory] pairs
-    scanNamespaces: [
-        ['App\\', __DIR__ . '/../src'],
-    ],
-
-    // Autoload classes not yet loaded by Composer during namespace scan
-    autoload: false,
-
-    // Namespace prefixes excluded from scanning (e.g. test namespaces in prod)
-    scanExcludeNamespaces: ['App\\Tests\\'],
-
-    // Active profile — selects application-{profile}.yml overrides
-    profile: null,
-
-    // Eagerly instantiate all beans at startup (slower start, faster first request)
-    eager: false
-)]
-class MyApplication {
-
-    public static function main(): void {
-        (new WinterWebSwooleApplication())->run(MyApplication::class);
-    }
-}
-```
-
-### Option reference
-
-- **``** `array` (required)
-  List of directory paths to search for `application.yml` and `logger.yml`.
-
-- **``** `array` (required)
-  PSR-4 `[prefix, directory]` pairs to scan for stereotype attributes.
-
-- **``** `bool` (default: `false`)
-  Load classes from disk if not already in memory during scanning.
-
-- **``** `array` (default: `[]`)
-  Namespace prefixes to skip entirely during scanning.
-
-- **``** `string | null` (default: `null`)
-  Active environment profile. Loads `application-{profile}.yml` overrides on
-    top of the base configuration.
-
-- **``** `bool` (default: `false`)
-  Instantiate all beans at startup instead of lazily on first access. Results
-    in a slower startup but a faster first request.
+The entry-point class must be annotated with `#[WinterBootApplication]`. It tells the framework where the config files are (`configDirectory`) and which namespaces to scan (`scanNamespaces`), and optionally sets a profile, exclusions, and eager loading. See [Configuration](/winter-boot/configuration#winterbootapplication-attribute-options) for every option.
 
 ---
 
@@ -141,9 +86,9 @@ Choose the runner class that matches how your application is deployed.
 <CardGrid>
 
 <Card title="WinterWebSwooleApplication" icon="star">
-  **High-performance HTTP server.** Starts a persistent
-  multi-worker server that handles concurrent requests in a single PHP process.
-  The right choice for production APIs and microservices.
+  **Built-in HTTP server (recommended).** Starts a long-running server with a
+  pool of worker processes. Required for `#[Async]`, `#[Scheduled]`, daemon
+  threads, and the local KV/queue stores. The right choice for production APIs.
 
   ```php
   (new WinterWebSwooleApplication())->run(MyApplication::class);
@@ -151,29 +96,20 @@ Choose the runner class that matches how your application is deployed.
 </Card>
 
 <Card title="WinterWebApplication" icon="external">
-  **Traditional PHP-FPM / Apache web runner.** Bootstraps the full context once
-  per request under a conventional web server. Use when the extension is unavailable
-  or when integrating with an existing PHP hosting environment.
+  **PHP-FPM / Apache runner.** Bootstraps the full context once per request
+  under a conventional web server. Use it only when you must run inside existing
+  PHP hosting; background features are not available.
 
   ```php
   (new WinterWebApplication())->run(MyApplication::class);
   ```
 </Card>
 
-<Card title="WinterCliApplication" icon="window">
-  **Command-line runner.** Boots the full DI context, fires
-  `#[OnApplicationReady]`, then returns control so your CLI logic can execute.
-  Ideal for console commands, one-off scripts, and integration test harnesses.
-
-  ```php
-  (new WinterCliApplication())->run(CliApplication::class);
-  ```
-</Card>
 
 <Card title="WinterMigrationApplication" icon="database">
-  **Database migration runner.** Accepts `--configDir`, `--sqlPath`, and
-  `--migrationType` CLI flags. Intentionally skips module loading and
-  `#[OnApplicationReady]` events for a lean, fast migration run.
+  **Migration runner.** Runs SQL or OpenSearch migrations and exits. Requires
+  `--configDir` and `--sqlPath`; `--migrationType` is optional. Skips modules
+  and `#[OnApplicationReady]` for a fast run. See [Migrations](/winter-boot/data/migrations).
 
   ```bash
   php migrate.php --configDir=config --sqlPath=db/migrations
@@ -186,30 +122,28 @@ Choose the runner class that matches how your application is deployed.
 
 ## Multiple starters
 
-A single codebase can expose several starter classes, each bootstrapping a different slice of the application. This is a first-class pattern in Winter Boot — ideal for separating test, web, and worker entry points.
+One codebase can have several entry-point classes, each with its own config and scan settings. A common pair is the web server and a migration runner that ships in the same image:
 
 ```php title="Multiple starters"
-// src/TestApplication.php
-#[WinterBootApplication(
-    configDirectory: [__DIR__ . '/../config/test'],
-    scanNamespaces: [['App\\', __DIR__]],
-    scanExcludeNamespaces: ['App\\Web\\']
-)]
-class TestApplication {
-    public static function main(): void {
-        (new WinterCliApplication())->run(TestApplication::class);
-    }
-}
-
 // src/WebApplication.php
 #[WinterBootApplication(
     configDirectory: [__DIR__ . '/../config'],
-    scanNamespaces: [['App\\', __DIR__]],
-    eager: false
+    scanNamespaces: [['App\\', __DIR__]]
 )]
 class WebApplication {
     public static function main(): void {
         (new WinterWebSwooleApplication())->run(WebApplication::class);
+    }
+}
+
+// src/MigrationApplication.php
+#[WinterBootApplication(
+    configDirectory: [__DIR__ . '/../config'],
+    scanNamespaces: [['App\\Db\\', __DIR__ . '/Db']]
+)]
+class MigrationApplication {
+    public static function main(): void {
+        (new WinterMigrationApplication())->run(MigrationApplication::class);
     }
 }
 ```
@@ -224,10 +158,11 @@ The framework enforces these rules at startup:
 
 - The method must be `public`.
 - The method must not be abstract or a constructor.
-- The method must not declare a return type (it should return `void`).
+- The method must return `void` (or declare no return type).
 
 ```php title="DatabaseConnectionPool.php"
-use dev\winterframework\stereotype\{Service, Autowired, PostConstruct};
+use dev\winterframework\core\context\ApplicationContext;
+use dev\winterframework\stereotype\{Service, Autowired, PostConstruct, Value};
 
 #[Service]
 class DatabaseConnectionPool {
@@ -256,10 +191,9 @@ class DatabaseConnectionPool {
 ```
 
 <Aside type="caution">
-  Do **not** put initialisation logic that relies on injected values inside
-  `__construct`. Injections happen after construction, so `#[Autowired]` and
-  `#[Value]` properties are still `null` inside the constructor. Use
-  `#[PostConstruct]` instead.
+  Do **not** put setup logic that relies on `#[Autowired]` or `#[Value]`
+  properties inside `__construct`. Those are injected after construction, so
+  they are not yet set inside the constructor. Use `#[PostConstruct]` instead.
 </Aside>
 
 ---
@@ -349,41 +283,14 @@ class ConnectionPool {
 
 ---
 
-## `WinterModule`
+## Modules
 
-`WinterModule` is the base contract for optional framework modules that extend Winter Boot with additional capabilities. Modules are declared in your `application.yml` and are initialised after the main application context has been built.
+Libraries such as Kafka, Redis, or Doctrine plug into this lifecycle as modules. Enabled modules contribute their namespaces before the scan, are initialized after the context is built, and are started just before `#[OnApplicationReady]` fires:
 
-Each module can register its own beans, scan additional namespaces, and integrate with the application context. Winter Boot's built-in features — such as transaction management, caching, async tasks, and scheduling — are all delivered as modules.
-
-```yaml title="application.yml — enabling modules"
+```yaml title="config/application.yml"
 modules:
-  - dev\winterframework\pdox\PdoModule
-  - dev\winterframework\cache\CacheModule
-  - dev\winterframework\task\TaskModule
+    -   module: dev\winterframework\kafka\KafkaModule
+        enabled: true
 ```
 
-To create a custom module, implement the `WinterModule` interface and list your module class under `modules` in `application.yml`. The framework instantiates each module during the [Load modules](#startup-sequence) phase of startup and calls its initialisation methods in declaration order.
-
-```php title="CustomAuditModule.php"
-use dev\winterframework\core\app\WinterModule;
-use dev\winterframework\core\context\ApplicationContext;
-
-class CustomAuditModule implements WinterModule {
-
-    public function init(ApplicationContext $context): void {
-        // Register additional beans or configure services here.
-        // Called after the main context is built, before OnApplicationReady fires.
-    }
-}
-```
-
-```yaml title="application.yml — loading a custom module"
-modules:
-  - App\Module\CustomAuditModule
-```
-
-<Aside type="tip">
-  Modules are the correct extension point when you need to share infrastructure
-  beans (loggers, metrics clients, audit trails) across multiple Winter Boot
-  applications in the same organisation.
-</Aside>
+See [Module System](/winter-boot/core/module-system) for the `WinterModule` contract and how to write your own.

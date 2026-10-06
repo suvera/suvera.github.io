@@ -5,11 +5,11 @@ sidebar:
 description: "Package Winter Boot apps as Phar archives or Docker images and manage processes with systemd or Kubernetes."
 ---
 
-import { Aside, Card, CardGrid, Steps } from '@astrojs/starlight/components';
+import { Aside, Steps } from '@astrojs/starlight/components';
 
-Winter Boot applications can be shipped in several ways depending on your infrastructure: as a self-contained Phar archive for bare-metal hosts, as a Docker image for containerised deployments, or via standard PHP-FPM for environments that already manage PHP processes. The framework ships with a sample init.d script and Docker base image to get you started quickly. A fully working example, including a `Dockerfile` and a `box.json` build manifest, is available in the `suvera/winter-example-service` repository.
+Winter Boot applications can be shipped as a self-contained Phar archive for servers and VMs, as a Docker image for containers, or behind PHP-FPM where PHP processes are already managed for you. The framework provides a Docker base image and a sample init.d script. A working example with a `Dockerfile` and a Box manifest is in the [`suvera/winter-example-service`](https://github.com/suvera/winter-example-service) repository.
 
-All builds below assume the `WinterWebSwooleApplication` runner:
+All builds below assume your entry point is `bin/app.php` and uses the `WinterWebSwooleApplication` runner:
 
 ```php title="bin/app.php"
 (new WinterWebSwooleApplication())->run(MyApplication::class);
@@ -53,11 +53,13 @@ Use [Box](https://github.com/box-project/box) to compile your application and al
    {
        "output": "target/my-app.phar",
        "main": "bin/app.php",
-       "directories": ["src", "config"],
+       "directories": ["bin", "src", "vendor"],
        "compression": "GZ",
        "chmod": "0755"
    }
    ```
+
+   Keep `config/` out of the Phar and pass it at runtime with `-c`, so one build runs in every environment.
 
 
 
@@ -67,7 +69,7 @@ Use [Box](https://github.com/box-project/box) to compile your application and al
    box compile
    ```
 
-   On success, the output file is a standalone executable:
+   Run the result, pointing `-c` at the directory that holds `application.yml`:
 
    ```bash
    php target/my-app.phar -c /etc/my-app/config
@@ -83,55 +85,35 @@ Use [Box](https://github.com/box-project/box) to compile your application and al
 
 ### Docker Deployment
 
-Winter Boot ships a base `Dockerfile` at `build/docker/Dockerfile` that extends the official `php:8.5-cli` image and pre-installs the extensions most modules require:
+Build on the official [`suvera/winter-boot`](https://hub.docker.com/r/suvera/winter-boot) base image. It is based on `php:8.5-cli-alpine` and includes `swoole`, `winter_boot`, `redis`, `rdkafka`, `pcntl`, `curl`, `zip`, `pdo_pgsql`, and the PostgreSQL client. Its `php.ini` keeps `variables_order = EGPCS`, so `$env.*` property sources work. (The image definition lives at `build/docker/Dockerfile` in the framework repository if you need to build a variant.)
 
-```dockerfile title="build/docker/Dockerfile"
-#####################################################################################
-#  WinterBoot PHP Image - Run below command
-#
-#     docker build . -t suvera/winter-boot:latest -f ./build/docker/Dockerfile
-#
-#####################################################################################
-FROM php:8.5-cli
-
-RUN apt-get update \
-    && apt-get install -y librdkafka-dev libzip-dev procps libssl-dev libcurl4-openssl-dev \
-    && pecl install redis \
-    && pecl install rdkafka \
-    && pecl install swoole-6.2.2 \
-    && pecl install zip \
-    && docker-php-ext-enable redis rdkafka swoole zip
-```
-
-Build your application image on top of the base image:
+The base image does not include Composer, so install dependencies in a separate stage:
 
 ```dockerfile title="Dockerfile"
-FROM suvera/winter-boot:latest
-
+FROM composer:2 AS vendor
 WORKDIR /app
-
 COPY composer.json composer.lock ./
-RUN composer install --no-dev --optimize-autoloader
+RUN composer install --no-dev --optimize-autoloader --ignore-platform-reqs
 
-COPY src/    src/
-COPY config/ config/
+FROM suvera/winter-boot:latest
+WORKDIR /app
+COPY --from=vendor /app/vendor/ vendor/
+COPY bin/ bin/
+COPY src/ src/
 
 EXPOSE 8080
-
-CMD ["php", "src/MyApplication.php", "-c", "config/"]
+CMD ["php", "bin/app.php", "-c", "/config"]
 ```
-
-
 
 ```bash title="Build"
 docker build -t my-winter-service:latest .
 ```
 
 ```bash title="Run"
-docker run -p 8080:8080 my-winter-service:latest
+docker run -p 8080:8080 -v "$(pwd)/config":/config my-winter-service:latest
 ```
 
-
+Remember to set `server.address: 0.0.0.0` in the mounted `application.yml`, otherwise the server is not reachable from outside the container.
 
 #### Key Considerations
 
@@ -139,13 +121,13 @@ docker run -p 8080:8080 my-winter-service:latest
   <details>
 <summary>PHP 8.5+ required</summary>
 
-Winter Boot requires PHP 8.5 or higher. The base image ships PHP 8.5-cli.
+Winter Boot requires PHP 8.5 or higher. The base image ships PHP 8.5 CLI.
 
 </details>
   <details>
-<summary>PHP extension</summary>
+<summary>PHP extensions</summary>
 
-The `swoole` extension is required for the `WinterWebSwooleApplication` runner — install it via the [Installation](/winter-boot/installation) guide. The base image already includes it.
+`winter_boot` is always required, and `swoole` is required for the `WinterWebSwooleApplication` runner. The base image includes both; for other images, see [Installation](/winter-boot/installation).
 
 </details>
   <details>
@@ -164,13 +146,13 @@ Mount your `application.yml` at a known path and pass it with `-c /config` at co
 
 #### Kubernetes — Init Container for Migrations
 
-When deploying with SQL migrations, run the migrator as a Kubernetes init container so the schema is up-to-date before any application pod starts:
+When deploying with SQL migrations, run the migration runner as a Kubernetes init container so the schema is up to date before the application container starts (see [Migrations](/winter-boot/data/migrations) for the runner script):
 
 ```yaml title="k8s/deployment.yaml"
 initContainers:
   - name: db-migrate
     image: my-winter-service:latest
-    command: ["php", "target/winter-migrations-app.phar", "-c", "/config"]
+    command: ["php", "bin/migrate.php", "--configDir", "/config", "--sqlPath", "/app/migrations"]
     volumeMounts:
       - name: config
         mountPath: /config
@@ -192,14 +174,14 @@ The `-c` flag points to the directory containing your `application.yml` (and any
 
 #### init.d Service Management
 
-Winter Boot ships a ready-to-use init.d template at `build/init.d.sample.sh`. Copy it and register it with your init system:
+The framework repository includes an init.d template at [`build/init.d.sample.sh`](https://github.com/suvera/winter-boot/blob/master/build/init.d.sample.sh). Copy it and register it with your init system:
 
 ```bash
-cp build/init.d.sample.sh /etc/init.d/my-winter-service
+cp init.d.sample.sh /etc/init.d/my-winter-service
 chmod +x /etc/init.d/my-winter-service
 ```
 
-Edit the variables at the top of the file to match your environment:
+Replace the `<<placeholder>>` values at the top of the file to match your environment:
 
 ```bash title="/etc/init.d/my-winter-service"
 USER=www-data
@@ -255,7 +237,7 @@ systemctl start  my-winter-service
 
 ### PHP-FPM Deployment
 
-When using `WinterWebApplication` (without the extension), point your web server's FastCGI configuration at your application entry point:
+When using the `WinterWebApplication` runner (no Swoole server), point your web server's FastCGI configuration at your application entry point. The `winter_boot` extension is still required:
 
 ```nginx title="/etc/nginx/sites-available/my-app.conf"
 location / {
@@ -273,19 +255,4 @@ location / {
 
 ## Full Example Project
 
-The `suvera/winter-example-service` repository demonstrates a complete Winter Boot microservice with a production-ready setup:
-
-<CardGrid>
-  <Card title="Dockerfile" icon="desktop">
-    A production-ready multi-stage `Dockerfile` built on the Winter Boot base image.
-  
-</Card>
-  <Card title="box.json manifest" icon="document">
-    A `box.json` build manifest for Phar packaging, suitable for CI/CD pipelines.
-  
-</Card>
-  <Card title="Migration init container" icon="database">
-    SQL migration setup using the Kubernetes init container pattern.
-  
-</Card>
-</CardGrid>
+The [`suvera/winter-example-service`](https://github.com/suvera/winter-example-service) repository is a complete Winter Boot microservice with a `Dockerfile` built on the base image, a Box manifest (`deploy/box.json`) and build script for the Phar, and sample configuration for datasources, Redis, and DTCE.

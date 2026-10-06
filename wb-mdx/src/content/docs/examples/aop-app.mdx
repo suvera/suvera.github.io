@@ -1,13 +1,13 @@
 ---
 title: "AOP Sample Application"
 sidebar:
-  label: "AOP Example"
+  label: "AOP Guard"
 description: "Protect a REST endpoint with a custom AOP attribute that checks a request header and denies with 403."
 ---
 
 import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
 
-Build an app that guards a REST endpoint with a custom AOP attribute. You annotate the endpoint method with `#[RequireCustomHeader]` and the framework runs your interceptor before the method body: requests carrying `X-Custom-Foo-Bar: foo-bar` go through, everything else is denied with `403` without the method executing. This example applies the concepts from the main [AOP documentation](/winter-boot/core/aop) — attributes, interceptors, and the advice lifecycle — to a complete runnable app.
+Build an app that guards a REST endpoint with a custom AOP attribute. You annotate the endpoint method with `#[RequireCustomHeader]` and the framework runs your interceptor before the method body: requests carrying `X-Custom-Foo-Bar: foo-bar` go through, everything else is denied with `403` without the method executing. It applies the concepts from [AOP](/winter-boot/core/aop) — attributes, interceptors, and the advice lifecycle — in a complete runnable app.
 
 <Aside type="caution">
   Your attribute class must carry `#[StereoTyped]` (next to `#[Attribute]`). Without it the scanner never registers the attribute and your advice is silently ignored — the endpoint just runs unguarded.
@@ -19,7 +19,7 @@ Build an app that guards a REST endpoint with a custom AOP attribute. You annota
 
 ## Prerequisites
 
-You need PHP 8.5 or later with the `swoole` and `pcntl` extensions (see the [Installation](/winter-boot/installation) guide). No external services are needed.
+You need PHP 8.5 or later with the `winter_boot`, `swoole`, and `pcntl` extensions (see the [Installation](/winter-boot/installation) guide). No external services are needed.
 
 ## Project structure
 
@@ -157,7 +157,7 @@ Switch between the source files. Each tab shows the exact file from the sample.
             $request = $ctx->getApplicationContext()->getCurrentHttpRequest();
             if (!isset($request)) {
                 throw new WinterException(
-                    '#[RequireCustomHeader] needs an HttpRequest argument on method '
+                    '#[RequireCustomHeader] can only guard HTTP endpoint methods: '
                     . $ctx->getMethod()->getName()
                 );
             }
@@ -194,7 +194,7 @@ Switch between the source files. Each tab shows the exact file from the sample.
   </TabItem>
 
   <TabItem label="rest/AopDemoController.php">
-    The guarded endpoint. It guared by `#[RequireCustomHeader]` AOP advice.
+    The guarded endpoint, protected by the `#[RequireCustomHeader]` advice.
 
     ```php
     <?php
@@ -206,7 +206,6 @@ Switch between the source files. Each tab shows the exact file from the sample.
     use dev\winterframework\stereotype\RestController;
     use dev\winterframework\stereotype\web\GetMapping;
     use dev\winterframework\stereotype\web\RequestMapping;
-    use dev\winterframework\web\http\HttpRequest;
 
     #[RestController]
     #[RequestMapping(path: "aop-demo")]
@@ -223,7 +222,7 @@ Switch between the source files. Each tab shows the exact file from the sample.
     }
     ```
 
-    To guard another endpoint, add an `HttpRequest` argument and annotate it — custom header name and value are optional parameters: `#[RequireCustomHeader(headerName: "X-Api-Key", expectedValue: "secret")]`.
+    To guard another endpoint, annotate it the same way. The header name and value are optional parameters: `#[RequireCustomHeader(headerName: "X-Api-Key", expectedValue: "secret")]`.
   </TabItem>
 
   <TabItem label="bin/application.php">
@@ -259,7 +258,6 @@ Switch between the source files. Each tab shows the exact file from the sample.
     }
     ```
 
-    The runnable sample in `winter-boot-samples` adds a local `path` repository for `winter-boot` so it resolves from a sibling checkout. You do not need that entry when you install the released package from Packagist.
   </TabItem>
 </Tabs>
 
@@ -325,4 +323,4 @@ HTTP/1.1 200 OK
 ## Next steps
 
 - Read [AOP](/winter-boot/core/aop) for the advice lifecycle (`begin`/`commit`/`failed`), `stopExecution`, and execution variables.
-- Put reusable advice on `#[Service]` beans the same way — bean-to-bean calls run through proxies, so the same attribute works there unchanged.
+- Put reusable advice on `#[Service]` bean methods the same way — the attribute works there unchanged.

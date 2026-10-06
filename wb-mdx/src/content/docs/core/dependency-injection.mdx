@@ -7,7 +7,7 @@ description: "Learn how Winter Boot's IoC container discovers beans, wires depen
 
 import { Aside } from '@astrojs/starlight/components';
 
-Winter Boot uses a pure attribute-driven IoC container. Every class you annotate with a stereotype — `#[Service]`, `#[Component]`, or `#[Configuration]` — is discovered during namespace scanning at startup, instantiated once as a singleton, and registered in the bean registry. Dependencies between beans are expressed with `#[Autowired]` on class properties, and the container resolves and injects them automatically so you never call `new` on a managed object. All stereotype attributes live in the `dev\winterframework\stereotype\` namespace.
+Winter Boot's container is driven entirely by attributes. Every class you annotate with a stereotype — `#[Service]`, `#[Component]`, or `#[Configuration]` — is discovered when namespaces are scanned at startup, created once (beans are singletons), and registered. Dependencies are declared with `#[Autowired]` on properties or as typed constructor parameters, and the container injects them for you, so you never call `new` on a managed object. All stereotype attributes live in the `dev\winterframework\stereotype\` namespace.
 
 ## `#[Service]`
 
@@ -163,21 +163,21 @@ $redis = $appCtx->beanByClass(RedisClient::class);
 use dev\winterframework\stereotype\{Configuration, Bean};
 
 #[Configuration]
-class DataSourceConfig {
+class ApiClientConfig {
 
-    #[Bean("primaryDb")]
-    public function primaryDataSource(): DataSource {
-        return new MysqlDataSource('primary.db.host', 'app_db');
+    #[Bean("ordersApi")]
+    public function ordersApi(): ApiClient {
+        return new ApiClient('https://orders.internal');
     }
 
-    #[Bean("analyticsDb")]
-    public function analyticsDataSource(): DataSource {
-        return new MysqlDataSource('analytics.db.host', 'analytics_db');
+    #[Bean("billingApi")]
+    public function billingApi(): ApiClient {
+        return new ApiClient('https://billing.internal');
     }
 }
 
-$primary   = $appCtx->beanByName("primaryDb");
-$analytics = $appCtx->beanByName("analyticsDb");
+$orders  = $appCtx->beanByName("ordersApi");
+$billing = $appCtx->beanByName("billingApi");
 ```
 
 ```php title="Init / Destroy Lifecycle"
@@ -260,7 +260,7 @@ class NotificationDispatcher {
 
 ## `#[Value]`
 
-`#[Value]` is a **property-level** attribute that injects a scalar value from `application.yml`. The expression must use the `${key.path}` syntax — otherwise startup throws a `TypeError`. The property must be typed with a scalar built-in type (`string`, `int`, `float`, `bool`). You can pass an optional default as the second argument.
+`#[Value]` is a **property-level** attribute that injects a value from `application.yml`. The expression must use the `${key.path}` syntax — otherwise startup throws a `TypeError`. The property must have a built-in type (`string`, `int`, `float`, `bool`, or `array`). Pass a default as the second argument, or give the property a default value. See [Configuration](/winter-boot/configuration) for property sources and fallback chains.
 
 
 

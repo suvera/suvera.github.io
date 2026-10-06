@@ -7,23 +7,21 @@ description: "Winter DTCE distributes tasks across nodes with pluggable queues a
 
 import { Aside } from '@astrojs/starlight/components';
 
-Winter DTCE is a real-time Distributed Task Computing Engine for Winter Boot. It accepts tasks and jobs, queues them durably, and processes them through workers that you define. This page explains how DTCE works, which backends it supports, and how to configure and execute your first distributed task.
+Winter DTCE (Distributed Task Computing Engine) runs tasks across one or more nodes. It accepts tasks and jobs, queues them, and processes them with workers that you write. This page explains how DTCE works, which backends it supports, and how to run your first task.
 
-A **task** is a small logical unit that makes progress toward a unified goal of the system. A **job** is a collection of similar tasks.
+A **task** is a single unit of work. A **job** is a collection of similar tasks.
 
 DTCE provides the following capabilities:
 
-- Execute a task synchronously and asynchronously
-- Execute a big job (many tasks) synchronously and asynchronously
-- Persist tasks through a storage backend, so they are not lost on restarts or failures
+- Run a single task, synchronously or asynchronously
+- Run a large job (many tasks), synchronously or asynchronously
+- Keep task input and output in a storage backend, so work survives restarts and failures (with a persistent backend)
 
 ## Setup
 
-Install the modules package as described in the [Installation](/winter-boot/installation) guide, then enable DTCE in your application.
+Install `suvera/winter-modules` as described in [Installation](/winter-boot/installation), then enable DTCE in **application.yml**:
 
-Add the module to your **application.yml**:
-
-```yaml
+```yaml title="application.yml"
 modules:
   - module: dev\winterframework\dtce\DtceModule
     enabled: true
@@ -42,23 +40,23 @@ There are three main components.
 
 ### 1. Task Queue
 
-Any executable task is placed in the queue, then processed by a worker. Any queue implementation must implement `TaskQueueHandler`. This module provides four implementations out of the box.
+Any executable task is placed in the queue, then processed by a worker. Any queue implementation must implement `TaskQueueHandler`. DTCE includes four implementations.
 
 | Queue class | Kind | Notes |
 | --- | --- | --- |
-| `dev\winterframework\dtce\task\storage\TaskQueueShared` | Local | Make sure `winter.queue.port` is set in `application.yml`. This is local to the system, shared across processes. |
+| `dev\winterframework\dtce\task\storage\TaskQueueShared` | Local | Uses the [local queue store](/winter-boot/advanced/local-stores) — set `winter.queue.port` in `application.yml`. Shared by all processes on one host. |
 | `dev\winterframework\dtce\task\storage\TaskQueueRedis` | Distributed | Requires the [Redis module](/winter-boot/modules/data-redis). |
 | `dev\winterframework\dtce\task\storage\TaskQueueKafka` | Distributed | Requires the [Kafka module](/winter-boot/modules/kafka). |
 | `dev\winterframework\dtce\task\storage\TaskQueuePdbc` | Distributed | Uses a database-backed queue. |
 
 ### 2. Task Store
 
-Input data to a worker and output data from a worker are stored in the Task Store. Any store implementation must implement `TaskIOStorageHandler`. This module provides four implementations out of the box.
+Input data to a worker and output data from a worker are stored in the Task Store. Any store implementation must implement `TaskIOStorageHandler`. DTCE includes four implementations.
 
 | Store class | Kind | Notes |
 | --- | --- | --- |
 | `dev\winterframework\dtce\task\storage\TaskIOStorageDisk` | Local disk | Local disks are not distributed; they only work on a single node. For multiple nodes, use NFS, HDFS, GlusterFS, or another shared file system. |
-| `dev\winterframework\dtce\task\storage\TaskIOStorageKvStore` | Local memory KV | Make sure `winter.kv.port` is set in `application.yml`. This is local to the system, shared across processes. |
+| `dev\winterframework\dtce\task\storage\TaskIOStorageKvStore` | Local memory KV | Uses the [local KV store](/winter-boot/advanced/local-stores) — set `winter.kv.port` in `application.yml`. Shared by all processes on one host. |
 | `dev\winterframework\dtce\task\storage\TaskIOStorageRedis` | Distributed | Requires the [Redis module](/winter-boot/modules/data-redis). |
 | `dev\winterframework\dtce\task\storage\TaskIOStoragePdbc` | Distributed | Uses a database-backed store. |
 
@@ -107,7 +105,7 @@ if ($result->isSuccess()) {
 
 A minimal `dtce-config.yml` assigns a queue handler, a storage handler, and a worker class to a named task:
 
-```yaml
+```yaml title="config/dtce-config.yml"
 tasks:
   - name: wordCount
     storage:
@@ -119,8 +117,8 @@ tasks:
     queue:
       handler: dev\winterframework\dtce\task\storage\TaskQueueRedis
 
-  - name: another-task
-    ...
+  # - name: another-task
+  #   ...
 ```
 
 ### Full configuration

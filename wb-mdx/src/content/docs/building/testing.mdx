@@ -1,83 +1,258 @@
 ---
-title: "Testing Winter Boot Applications with #[WinterBootTest]"
+title: "Testing Winter Boot Applications with PHPUnit"
 sidebar:
   label: "Testing"
-description: "Mark test classes as beans with #[WinterBootTest] and run the framework's zero-dependency test harness to exercise services against a real application context."
+description: "Unit-test Winter Boot beans with PHPUnit stubs, and run integration tests against the real application context booted once per test run, without starting the HTTP server."
 ---
 
-import { Steps } from '@astrojs/starlight/components';
+import { Aside, Steps } from '@astrojs/starlight/components';
 
-Winter Boot ships a `#[WinterBootTest]` stereotype that registers a class as a first-class bean during startup, plus a small zero-dependency test runner (`srcTests/run.php`) that the framework itself uses. Together they let you write integration tests that exercise your services against a real DI container without pulling in PHPUnit.
+Winter Boot does not ship its own test runner. Use [PHPUnit](https://phpunit.de/), the standard PHP test framework (the PHP counterpart of JUnit). This page shows two kinds of tests:
 
-## The `#[WinterBootTest]` attribute
+- **Unit tests** — create a class with `new`, pass in stubs for its dependencies, and test it in isolation. Fast, and no framework involved.
+- **Integration tests** — boot the real application context once (beans, configuration, datasources) and test beans exactly as the application wires them, without starting the HTTP server.
 
-Apply `#[WinterBootTest]` to any class. The container treats it the same way it treats `#[Service]` or `#[Component]`: it registers the class as a bean, resolves its dependencies via `#[Autowired]`, and runs its `#[PostConstruct]` hooks.
+## Setup
 
-```php title="srcTests/UserServiceTest.php"
-<?php
-declare(strict_types=1);
+<Steps>
 
-namespace com\example\test;
+1. **Install PHPUnit**
 
-use dev\winterframework\stereotype\Autowired;
-use dev\winterframework\stereotype\test\WinterBootTest;
+   ```bash
+   composer require --dev phpunit/phpunit
+   ```
 
-#[WinterBootTest]
-class UserServiceTest
+   Register your test namespace for autoloading in `composer.json`, next to your application namespace, then run `composer dump-autoload`:
+
+   ```json title="composer.json"
+   {
+       "autoload": {
+           "psr-4": { "com\\example\\myapp\\": "src/" }
+       },
+       "autoload-dev": {
+           "psr-4": { "com\\example\\myapp\\tests\\": "tests/" }
+       }
+   }
+   ```
+
+2. **Add a test runner that boots the context**
+
+   This small class reuses the framework's normal startup, but keeps the finished application context instead of starting the HTTP server. Copy it into your `tests/` directory:
+
+   ```php title="tests/TestApplicationRunner.php"
+   <?php
+   declare(strict_types=1);
+
+   namespace com\example\myapp\tests;
+
+   use dev\winterframework\core\app\WinterApplicationRunner;
+   use dev\winterframework\core\context\ApplicationContext;
+   use dev\winterframework\io\timer\IdleCheckRegistry;
+
+   /**
+    * Boots the Winter Boot application context once per test run,
+    * without starting the HTTP server.
+    */
+   final class TestApplicationRunner extends WinterApplicationRunner {
+       private static ?ApplicationContext $context = null;
+
+       public static function context(string $appClass, ?string $configDir = null): ApplicationContext {
+           if (self::$context === null) {
+               // The framework parses $_SERVER['argv'] on boot and rejects
+               // unknown options, so hide PHPUnit's own flags (--filter, ...).
+               // A test config directory is passed the same way as `-c` on the CLI.
+               $argv = $_SERVER['argv'] ?? [];
+               $_SERVER['argv'] = [$argv[0] ?? 'phpunit'];
+               if ($configDir !== null) {
+                   array_push($_SERVER['argv'], '--configDir', $configDir);
+               }
+               try {
+                   (new self())->run($appClass);
+               } finally {
+                   $_SERVER['argv'] = $argv;
+               }
+           }
+           return self::$context;
+       }
+
+       protected function runBootApp(): void {
+           // No server runs here: stop the datasource idle-check timer, or its
+           // pending Swoole timer keeps PHPUnit running after the last test.
+           $this->applicationContext->beanByClass(IdleCheckRegistry::class)->disableTimer();
+           // Called once the context is built; keep it instead of serving HTTP.
+           self::$context = $this->applicationContext;
+       }
+   }
+   ```
+
+   <Aside type="caution">
+     Keep the `$_SERVER['argv']` handling. Without it, running `phpunit --filter ...` stops with `Invalid option: filter`, because Winter Boot reads the command line at startup.
+
+     Keep the `disableTimer()` call too. Without it, PHPUnit never exits once a test has used a datasource: the idle-check timer keeps Swoole's event loop running after the last test.
+   </Aside>
+
+3. **Add a test configuration and bootstrap file**
+
+   Give tests their own config directory, so they never touch your real database or services. It must contain a complete `application.yml` (it replaces your normal one; it is not merged):
+
+   ```yaml title="tests/config/application.yml"
+   winter:
+       application:
+           name: My Service (tests)
+           id: my-service
+           version: 1.0.0
+
+   datasource:
+       -   name: defaultdb
+           isPrimary: true
+           url: "sqlite::memory:"
+
+   greeting:
+       prefix: Hi
+   ```
+
+   The bootstrap file loads the autoloader and boots the context once, before any test runs:
+
+   ```php title="tests/bootstrap.php"
+   <?php
+   declare(strict_types=1);
+
+   require __DIR__ . '/../vendor/autoload.php';
+
+   use com\example\myapp\Application;
+   use com\example\myapp\tests\TestApplicationRunner;
+
+   TestApplicationRunner::context(Application::class, __DIR__ . '/config');
+   ```
+
+4. **Configure PHPUnit**
+
+   ```xml title="phpunit.xml"
+   <?xml version="1.0" encoding="UTF-8"?>
+   <phpunit bootstrap="tests/bootstrap.php" colors="true">
+       <php>
+           <!-- Same as the Winter Boot Docker image: hide PHP 8.5 deprecation
+                notices raised by third-party dependencies. -->
+           <ini name="error_reporting" value="E_ALL &amp; ~E_DEPRECATED &amp; ~E_USER_DEPRECATED"/>
+       </php>
+       <testsuites>
+           <testsuite name="app">
+               <directory>tests</directory>
+           </testsuite>
+       </testsuites>
+   </phpunit>
+   ```
+
+</Steps>
+
+## Unit tests
+
+Beans that receive their dependencies through the **constructor** can be created with `new` in a test, with PHPUnit stubs standing in for the dependencies. No container is needed:
+
+```php title="src/WelcomeService.php"
+#[Service]
+class WelcomeService
 {
-    #[Autowired]
-    private UserService $users;
+    public function __construct(private GreetingService $greetings) {}
 
-    public function testCreateUser(): void
+    public function welcome(string $name): string
     {
-        $id = $this->users->create('alice', 'alice@example.com');
-        // assert on $id
+        return strtoupper($this->greetings->greet($name));
     }
 }
 ```
 
-The attribute lives at `dev\winterframework\stereotype\test\WinterBootTest`.
+```php title="tests/WelcomeServiceTest.php"
+<?php
+declare(strict_types=1);
 
-## The bundled test runner
+namespace com\example\myapp\tests;
 
-Winter Boot's own tests use a plain PHP runner with no external dependencies. You can lift the same pattern into your project.
+use com\example\myapp\GreetingService;
+use com\example\myapp\WelcomeService;
+use PHPUnit\Framework\TestCase;
 
-### Run
+final class WelcomeServiceTest extends TestCase
+{
+    public function testWelcomeUppercasesTheGreeting(): void
+    {
+        $greetings = $this->createStub(GreetingService::class);
+        $greetings->method('greet')->willReturn('Hey, Bob!');
 
-From the repository root:
+        $service = new WelcomeService($greetings);
 
-```bash
-php srcTests/run.php
+        $this->assertSame('HEY, BOB!', $service->welcome('Bob'));
+    }
+}
 ```
 
-The exit code is `0` when all tests pass and `1` otherwise.
+<Aside type="tip">
+  Prefer constructor injection for anything you want to unit-test. Dependencies injected into properties with `#[Autowired]` or `#[Value]` are private and set by the container, so a class built with `new` does not have them.
+</Aside>
 
-### Layout
+## Integration tests
 
-- `run.php` discovers `*Test.php` files in the directory and runs every public `test*` method, printing `ok` or `FAIL` per test plus a pass/fail summary.
-- `Support/TestCase.php` is a base class with `assertSame`, `assertTrue`, `assertFalse`, `assertNull`, and `assertThrows`. Assertion failures throw `AssertionFailed`.
-- `Support/StubPropertySource.php` is an in-memory `PropertySource` for tests. Choose the dataset via the `dataset` key of the `propertySources` entry in the fixture yml, and register rows in `StubPropertySource::$datasets` before building the context.
-- `fixtures/<name>/application.yml` is a config directory you pass to `new WinterPropertyContext(['.../fixtures/<name>'])`.
+Fetch beans from the booted context with `beanByClass()` (or `beanByName()`). They are the real, fully wired beans, using the test configuration:
 
-### Add a test
+```php title="tests/GreetingServiceTest.php"
+<?php
+declare(strict_types=1);
 
-<Steps>
+namespace com\example\myapp\tests;
 
-1. **Create the test file**
+use com\example\myapp\Application;
+use com\example\myapp\GreetingService;
+use PHPUnit\Framework\TestCase;
 
-   Create `SomethingTest.php` in `srcTests/`, namespace `winterBootTests`, class `SomethingTest extends \winterBootTests\Support\TestCase`.
+final class GreetingServiceTest extends TestCase
+{
+    private GreetingService $service;
 
+    protected function setUp(): void
+    {
+        $this->service = TestApplicationRunner::context(Application::class)
+            ->beanByClass(GreetingService::class);
+    }
 
+    public function testGreetUsesConfiguredPrefix(): void
+    {
+        // "Hi" comes from tests/config/application.yml
+        $this->assertSame('Hi, Alice!', $this->service->greet('Alice'));
+    }
+}
+```
 
-1. **Add public test methods**
+The context is built once and shared by every test in the run, just as beans are shared in the real application. Tests that change shared state (a database row, a cache entry) should clean it up, or use a fresh in-memory database.
 
-   Add public methods starting with `test`. No registration is needed; `run.php` picks the file up automatically.
+## Run the tests
 
+```bash
+vendor/bin/phpunit
+vendor/bin/phpunit --filter testGreetUsesConfiguredPrefix
+```
 
+The Winter Boot startup banner is printed once, when the context boots.
 
-</Steps>
+## What runs in tests, and what does not
+
+The test runner builds the context but does not start the server. Everything that lives inside beans works — dependency injection, `#[Value]`, `#[PostConstruct]`, datasources and `PdbcTemplate`, `#[Transactional]`, `#[Cacheable]` and other AOP attributes, and `RestTemplate`.
+
+The parts that need the running server are **not** started:
+
+| Feature | In tests |
+|---|---|
+| HTTP routing, controllers via HTTP, interceptors | Not served. Test controller methods by calling them directly, and test the logic in services. |
+| `#[Async]` | Calling an `#[Async]` method on a bean from the context throws `BeansException` (no async worker pool). Put the work in a plain method or service and test that. |
+| `#[Scheduled]`, `#[DaemonThread]` | Not started. Call the method directly to test its logic. |
+| `#[OnApplicationReady]` | Not fired. |
+| Local KV and queue stores | Not started. |
+
+<Aside type="note">
+  The `#[WinterBootTest]` attribute marks a class as a bean, like `#[Service]`. It is useful for test-only helper beans (fixtures, fakes) placed in a namespace that your test configuration scans. PHPUnit creates test-case classes itself, so `#[Autowired]` properties on a `TestCase` are **not** injected — fetch beans from the context as shown above.
+</Aside>
 
 ## Related pages
 
-- [Dependency injection](/winter-boot/core/dependency-injection) explains how the container resolves `#[Autowired]` dependencies in test beans.
-- [Application lifecycle](/winter-boot/core/application-lifecycle) covers container boot order that also applies to test contexts.
+- [Dependency Injection](/winter-boot/core/dependency-injection) — constructor and property injection.
+- [Configuration](/winter-boot/configuration) — how `application.yml` and `-c` / `--configDir` work.
+- [Application Lifecycle](/winter-boot/core/application-lifecycle) — what happens during startup.

@@ -1,7 +1,7 @@
 ---
 title: "Kafka Sample Application"
 sidebar:
-  label: "Kafka consumer"
+  label: "Kafka Consumer"
 description: "Build an end-to-end Kafka consumer app with Winter Boot and the Winter Kafka module that writes every message to a file, tested locally with a single-broker Kafka."
 ---
 
@@ -11,7 +11,7 @@ Build a consumer app that reads from a Kafka topic and writes every message to a
 
 ## Prerequisites
 
-You need PHP 8.5 or later with the `swoole`, `rdkafka`, and `pcntl` extensions (see the [Installation](/winter-boot/installation) guide). You also need Docker to run Kafka.
+You need PHP 8.5 or later with the `winter_boot`, `swoole`, `rdkafka`, and `pcntl` extensions (see the [Installation](/winter-boot/installation) guide). You also need Docker to run Kafka. The `suvera/winter-modules` package also needs the `redis` extension present to install.
 
 Start a single-broker Kafka before you run the app:
 

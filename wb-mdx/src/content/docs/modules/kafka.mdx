@@ -7,7 +7,7 @@ description: "Winter Kafka lets you produce and consume Kafka messages in Winter
 
 import { Aside, Steps } from '@astrojs/starlight/components';
 
-Winter Kafka is a module that provides easy configuration and access to Kafka functionality from Winter Boot applications. It takes care of wiring producers and consumer workers into the framework lifecycle, so you can send and receive events with only YAML configuration and focused worker classes.
+Winter Kafka connects Winter Boot applications to Apache Kafka. It wires producers and consumer workers into the application lifecycle, so you send and receive events with YAML configuration plus a small worker class.
 
 <Steps>
 
@@ -20,7 +20,7 @@ Winter Kafka is a module that provides easy configuration and access to Kafka fu
 
    Register the module and point it to your config file.
 
-   ```yaml
+   ```yaml title="application.yml"
    modules:
      - module: dev\winterframework\kafka\KafkaModule
        enabled: true
@@ -36,8 +36,8 @@ Winter Kafka is a module that provides easy configuration and access to Kafka fu
 
 The Kafka config declares your bootstrap servers, consumer groups, and named producers. You can apply global defaults with the reserved `__default__` name and override per group or producer as needed.
 
-```yaml
-bootstrap.servers: 127.0.0.1:9001
+```yaml title="config/kafka-config.yml"
+bootstrap.servers: 127.0.0.1:9092
 
 # Consumer configuration and groups
 consumers:
@@ -69,15 +69,19 @@ producers:
 
 ## Autowired services
 
-`KafkaService` is available to applications by default. Consumer workers start automatically when the framework boots, and all producers are enabled by default.
+Once the module is enabled, `KafkaService` can be autowired. Consumer workers start automatically when the application boots, and every configured producer is ready to use.
 
 The reserved `"__default__"` consumer and producer entries can contain any [rdkafka settings](https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md). Defaults apply to all producers and consumers; each individual entry may also specify its own rdkafka settings, which apply only to that producer or consumer.
 
 ```php
+use dev\winterframework\kafka\KafkaService;
+use dev\winterframework\stereotype\Autowired;
+
 #[Autowired]
 private KafkaService $kafkaService;
 
-$this->kafkaService->produce(....message....);
+// produce(producerName, message, key): sends to the producer's configured topic
+$this->kafkaService->produce('p-group1', json_encode(['orderId' => 42]), 'order-42');
 ```
 
 ## Consumer properties
@@ -87,14 +91,14 @@ $this->kafkaService->produce(....message....);
 | name | Yes | Consumer group name |
 | topic | Yes | (string) (alias to `topics`) Topic to consume. Either `topic` or `topics` is needed. |
 | topics | Yes | (array) (alias to `topic`) Array of topics to consume. Either `topic` or `topics` is needed. |
-| workerNum | Yes | Default value: `1`. Number of consumer workers to start. |
+| workerNum | No | Default value: `1`. Number of consumer worker processes to start. |
 | workerClass | Yes | Actual consumer class implementation. Must be derived from `AbstractConsumer`. |
 | statsCallback | No | Default value: `dev\winterframework\kafka\consumer\ConsumerLagMonitor`. Sets the statistics report callback; must be derived from `ConsumerStatisticsCallback`. Set `0` to disable. |
 | errorCallback | No | Default value: `dev\winterframework\kafka\consumer\ConsumerErrorCallbackDefault`. Sets the error callback, must be derived from `ConsumerErrorCallback`. Set `0` to disable. |
 | log_level | No | Default value: `6` (integer). Set log level value. EMERG = 0, ALERT = 1, CRIT = 2, ERR = 3, WARNING = 4, NOTICE = 5, INFO = 6, DEBUG = 7. |
 | logCallback | No | Default value: `dev\winterframework\kafka\KafkaLogCallbackDefault`. Sets the log callback; you will receive events according to `log_level`. Must be derived from `KafkaLogCallback`. Set `0` to disable. |
 | offsetCommitCallback | No | Default value: `(empty)`. Sets the offset commit callback for use with consumer groups. Must be derived from `ConsumerOffsetCommitCallback`. |
-| rebalanceCallback | Yes | Default value: `dev\winterframework\kafka\consumer\ConsumerRebalanceCallbackDefault`. Sets the rebalance callback for coordinated consumer group balancing. Must be derived from `ConsumerRebalanceCallback`. |
+| rebalanceCallback | No | Default value: `dev\winterframework\kafka\consumer\ConsumerRebalanceCallbackDefault`. Sets the rebalance callback for coordinated consumer group balancing. Must be derived from `ConsumerRebalanceCallback`. |
 | (Others) | - | [Full list of settings](https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md) |
 
 ## Producer properties
@@ -112,6 +116,10 @@ $this->kafkaService->produce(....message....);
 A consumer worker must implement the `Consumer` interface. In practice, extend `AbstractConsumer` and implement the `consume` method.
 
 ```php
+use dev\winterframework\kafka\consumer\AbstractConsumer;
+use dev\winterframework\kafka\consumer\ConsumerRecord;
+use dev\winterframework\kafka\consumer\ConsumerRecords;
+
 class TestKafkaConsumer extends AbstractConsumer {
 
     public function consume(ConsumerRecords $records): void {

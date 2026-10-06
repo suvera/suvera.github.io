@@ -7,39 +7,26 @@ description: "Winter Data Redis provides PhpRedis-backed templates for single no
 
 import { Aside } from '@astrojs/starlight/components';
 
-Winter Data Redis is a module that provides easy configuration and access to Redis from Winter Boot applications. It supports single nodes, Redis Cluster, Redis Arrays, Redis Sentinel, and token-based ring topologies such as Netflix Dynomite through the PhpRedis extension.
+Winter Data Redis connects Winter Boot applications to Redis. It supports single nodes, Redis Cluster, Redis Arrays, Redis Sentinel, and token-based ring topologies such as Netflix Dynomite through the PhpRedis extension.
 
 <Aside type="note">
-  This is a CLIENT module that connects to existing Redis servers. If you want the framework to launch and manage an embedded Redis server, use the [Memdb](/winter-boot/modules/memdb) module instead.
+  This is a client module that connects to existing Redis servers. If you want the framework to launch and manage an embedded Redis server, use the [Memdb](/winter-boot/modules/memdb) module instead.
 </Aside>
 
 ## Setup
 
-Install the modules package as described in the [Installation](/winter-boot/installation) guide, then append the following code to your `application.yml`:
+Install `suvera/winter-modules` and the `redis` PHP extension as described in [Installation](/winter-boot/installation), then enable the module in `application.yml`:
 
-```yaml
+```yaml title="application.yml"
 modules:
     - module: 'dev\winterframework\data\redis\RedisModule'
       enabled: true
       configFile: redis-config.yml
 ```
 
-## Implementation
+## Templates
 
-PHP has two very good libraries that can be used to work with Redis:
-
-1. [PhpRedis](https://github.com/phpredis/phpredis) - C Extension
-2. [Predis](https://github.com/predis/predis) - Pure PHP Implementation
-
-This module assumes that you have the [PhpRedis](https://github.com/phpredis/phpredis) extension already installed.
-
-<Aside type="note">
-  If you are interested in using Predis, contributions for a PredisTemplate are welcomed.
-</Aside>
-
-## Autowired Services
-
-This module provides the following services automatically available to you.
+The module uses the [PhpRedis](https://github.com/phpredis/phpredis) C extension (Predis is not supported). Pick the template that matches your Redis topology; each entry in `redis-config.yml` becomes a bean named after its `name`, and the first entry of each kind is also the default for an unnamed `#[Autowired]`.
 
 ### 1. PhpRedisTemplate
 
@@ -66,7 +53,7 @@ phpredis:
 private PhpRedisTemplate $redis;  // This defaults to "redisNode01Bean"
 
 #[Autowired("redisNode01Bean")]
-private PhpRedisTemplate $redis1;  // This is also the same object as above, but with named Autowired
+private PhpRedisTemplate $redis1;  // same object as above, by name
 
 #[Autowired("redisNode02Bean")]
 private PhpRedisTemplate $redis2;
@@ -75,10 +62,6 @@ private PhpRedisTemplate $redis2;
 ### 2. PhpRedisClusterTemplate
 
 Use `PhpRedisClusterTemplate` when dealing with [Redis Cluster](https://github.com/phpredis/phpredis/blob/develop/cluster.markdown#readme).
-
-<Aside type="note">
-  If you are interested in using Predis, contributions for a PredisClusterTemplate are welcomed.
-</Aside>
 
 #### Configuration for PhpRedisClusterTemplate (redis-config.yml)
 
@@ -101,7 +84,7 @@ phpredis:
 private PhpRedisClusterTemplate $redis;  // This defaults to "cluster01Bean"
 
 #[Autowired("cluster01Bean")]
-private PhpRedisClusterTemplate $redis1;  // This is also the same object as above, but with named Autowired
+private PhpRedisClusterTemplate $redis1;  // same object as above, by name
 
 #[Autowired("cluster02Bean")]
 private PhpRedisClusterTemplate $redis2;
@@ -118,7 +101,7 @@ phpredis:
     arrays:
         -   name: beanUniqueName01
             arrayName: arrayName01
-            hosts: [192.168.1.10:6379, 192.168.1.11:6379, 192.168.1.12:6379],
+            hosts: [192.168.1.10:6379, 192.168.1.11:6379, 192.168.1.12:6379]
             options:
                 -   consistent: true
                     auth: mysecretpassword
@@ -139,7 +122,7 @@ phpredis:
 private PhpRedisArrayTemplate $redis;  // This defaults to "beanUniqueName01"
 
 #[Autowired("beanUniqueName01")]
-private PhpRedisArrayTemplate $redis1;  // This is also the same object as above, but with named Autowired
+private PhpRedisArrayTemplate $redis1;  // same object as above, by name
 ```
 
 ### 4. PhpRedisSentinelTemplate
@@ -207,3 +190,12 @@ phpredis:
 #[Autowired("DynomiteCluster01")]
 private PhpRedisTokenTemplate $redis;
 ```
+
+## More in this module
+
+Besides the templates, the Redis module provides:
+
+- **`RedisCache`** — a distributed backend for `#[Cacheable]`. See [Caching](/winter-boot/ops/caching#rediscache--distributed-caching).
+- **`RedisSessionStore`** — store user sessions in Redis. See [Sessions](/winter-boot/core/request-sessions#redis-sessions).
+- **`AsyncRedisQueueStore`** — a persistent queue for `#[Async]` calls. See [Async Tasks](/winter-boot/async/async-tasks#queue-storage).
+- **Reliable queue** (`RedisQueueService`) — Redis Streams with consumer workers, redelivery, and dead-letter routing. See the [Redis queue example](/winter-boot/examples/redis-queue).

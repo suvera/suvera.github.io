@@ -7,11 +7,11 @@ description: "Configure Winter Boot with application.yml, inject values with #[V
 
 import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
 
-Winter Boot's configuration system is built around two complementary models: static property externalisation via `application.yml` and programmatic bean construction via `#[Configuration]` classes. Both are fully integrated with the dependency-injection container, so any property or bean is available for injection anywhere in your application. This page covers every layer of the system — from the YAML file structure and the `#[Value]` attribute, through additional property sources, to the `||` fallback-chain syntax.
+Winter Boot is configured in two ways: settings in `application.yml`, and beans you build in code with `#[Configuration]` classes. Both plug into the dependency-injection container, so any property or bean can be injected anywhere in your application. This page covers the YAML file, the `#[Value]` attribute, extra property sources (environment variables, INI files, your own), the `||` fallback syntax, and profiles.
 
 ## application.yml Structure
 
-All externalised properties live in `config/application.yml` (the path is set by the `configDirectory` option of `#[WinterBootApplication]`). Winter Boot parses this file at startup and makes every key available to the property context. The reserved top-level keys used by the framework are shown below; custom application keys can live anywhere else in the file.
+Properties live in `application.yml`, inside the directory set by the `configDirectory` option of `#[WinterBootApplication]` (or the `-c <dir>` command-line flag, which overrides it). Winter Boot reads this file at startup and makes every key available for injection. The framework's own keys are shown below; your own keys can go anywhere else in the file.
 
 ```yaml title="config/application.yml"
 server:
@@ -38,7 +38,6 @@ datasource:
             columnsCase: CASE_NATURAL
             idleTimeout: 300
             autoCommit: true
-            defaultrowprefetch: 100
 
 # Custom application properties — any structure you like:
 myApp:
@@ -48,7 +47,7 @@ myApp:
     value4: 10.89
 ```
 
-### Reserved Top-Level Keys
+### Core Framework Keys
 
 - **`server.port`** `integer` (default: `8080`)
   Port the built-in HTTP server binds to.
@@ -60,20 +59,22 @@ myApp:
   URL prefix prepended to all mapped routes.
 
 - **`winter.application.name`** `string`
-  Human-readable service name. Exposed by health and metrics endpoints.
+  Human-readable service name, shown in the startup banner.
 
 - **`winter.application.id`** `string`
-  Machine-readable service identifier used in logs and service-discovery registrations.
+  Machine-readable service identifier, used for example in service-discovery registrations.
 
 - **`winter.application.version`** `string`
   Semantic version string for the running service.
 
-- **`winter.application.datasource`** `array`
-  List of datasource definitions. Each entry requires at least `name`, `url`, and `driverClass`.
+- **`datasource`** `array`
+  List of datasource definitions. Each entry requires at least `name`, `url`, and `driverClass`. See [Database](/winter-boot/data/database).
+
+For every key the framework and its modules read, see the [application.yml reference](/winter-boot/reference/application-yml).
 
 ## #[WinterBootApplication] Attribute Options
 
-The entry-point attribute controls how Winter Boot boots your application. All parameters are optional and have sensible defaults.
+The entry-point attribute controls how Winter Boot starts your application. `configDirectory` and `scanNamespaces` are required; the rest are optional.
 
 ```php title="Application.php"
 <?php
@@ -91,13 +92,13 @@ use dev\winterframework\core\app\WinterWebSwooleApplication;
         ['com\\example\\myapp', __DIR__ . '/src']
     ],
 
-    // If true, the autoloader will attempt to load unknown classes during scan
+    // If true, the scanner require()s scanned files that Composer cannot autoload
     autoload: false,
 
     // Namespaces the scanner should skip entirely
     scanExcludeNamespaces: ['com\\example\\myapp\\generated'],
 
-    // Optional: profile name to load profile-specific config (e.g. application-prod.yml)
+    // Optional: load application-{profile}.yml instead of application.yml
     profile: null,
 
     // Set to true to instantiate all beans eagerly at startup
@@ -117,16 +118,16 @@ class Application
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `configDirectory` | `array` | `[]` | Directories scanned for `application.yml` and other config files. |
-| `scanNamespaces` | `array` | `[]` | Pairs of `[NamespacePrefix, BaseDirectory]` for component scanning. |
-| `autoload` | `bool` | `false` | Whether the scanner tries to autoload unknown classes it encounters. |
+| `configDirectory` | `array` | — (required) | Directories searched for `application.yml` and other config files. The `-c <dir>` CLI flag overrides it. |
+| `scanNamespaces` | `array` | — (required) | Pairs of `[NamespacePrefix, BaseDirectory]` scanned for beans. |
+| `autoload` | `bool` | `false` | When `true`, the scanner `require`s scanned files whose classes Composer cannot autoload. Leave `false` if your namespace is in `composer.json`. |
 | `scanExcludeNamespaces` | `array` | `[]` | Namespaces the scanner skips entirely. |
-| `profile` | `string\|null` | `null` | Loads `application-{profile}.yml` and merges it over the base config. |
-| `eager` | `bool` | `false` | When `true`, all beans are instantiated at startup rather than lazily. |
+| `profile` | `string\|null` | `null` | Loads `application-{profile}.yml` **instead of** `application.yml`. |
+| `eager` | `bool` | `false` | When `true`, all beans are created at startup rather than on first use. Startup is slower but errors surface earlier. |
 
 ## Injecting Properties with #[Value]
 
-The `#[Value]` attribute injects a property from the application context into any bean property or constructor parameter. Reference YAML keys with dot notation inside `${ }`.
+The `#[Value]` attribute injects a configuration value into a bean property. Reference YAML keys with dot notation inside `${ }`.
 
 ```php title="src/AppConfig.php"
 <?php
@@ -164,41 +165,42 @@ class AppConfig
 
 ## Programmatic Bean Configuration
 
-For beans that require construction logic — datasource pools, transaction managers, cache providers, third-party clients — use a `#[Configuration]` class. Methods annotated with `#[Bean]` are called once at startup and their return values are registered as managed beans. Winter Boot automatically injects other beans as method parameters.
+For beans that need construction logic — typically third-party clients that are not Winter Boot beans themselves — use a `#[Configuration]` class. Each `#[Bean]` method is called once and its return value is registered as a managed bean. Method parameters that are typed as other beans are injected automatically.
 
-```php title="src/DatabaseConfig.php"
+```php title="src/HttpClientConfig.php"
 <?php
 
 declare(strict_types=1);
 
 namespace com\example\myapp;
 
-use dev\winterframework\stereotype\Configuration;
 use dev\winterframework\stereotype\Bean;
+use dev\winterframework\stereotype\Configuration;
 use dev\winterframework\stereotype\Value;
+use GuzzleHttp\Client;
 
 #[Configuration]
-class DatabaseConfig
+class HttpClientConfig
 {
-    #[Value('${datasource[0].url}')]
-    private string $dbUrl;
+    #[Value('${payments.baseUrl}')]
+    private string $paymentsUrl;
 
     /**
-     * Produces a DataSource bean available for #[Autowired] injection.
+     * Registers a Guzzle client as a bean, available for #[Autowired] injection.
      */
     #[Bean]
-    public function getDataSource(): DataSource
+    public function paymentsClient(): Client
     {
-        return new PdoDataSource($this->dbUrl);
+        return new Client(['base_uri' => $this->paymentsUrl, 'timeout' => 5]);
     }
 
     /**
-     * Winter Boot injects the DataSource bean defined above automatically.
+     * The Client bean defined above is injected as a parameter.
      */
     #[Bean]
-    public function getTransactionManager(DataSource $ds): PlatformTransactionManager
+    public function paymentsGateway(Client $client): PaymentsGateway
     {
-        return new PdoTransactionManager($ds);
+        return new PaymentsGateway($client);
     }
 }
 ```
@@ -296,19 +298,14 @@ datasource:
 
 ### Fallback Chain Rules
 
-<details>
-<summary>Presence and fall-through rules</summary>
-
-| Value | Behaviour |
-  |---|---|
-  | Any non-empty, non-null value | **Present** — stops the chain and uses this value. |
-  | `false`, `0`, `'0'` | **Present** — stops the chain immediately. |
-  | `null` or `''` | **Falls through** to the next term in the chain. |
-  | Unknown source name | Treated as a missing key — falls through. |
-  | Single `$source.key` (no `||`) | Missing key throws a `PropertyException` (legacy behaviour). |
-  | Plain value with no `$source.key` | Never treated as a chain — `"a || b"` remains the literal string `a \|\| b`. |
-
-</details>
+| Value | Behavior |
+|---|---|
+| Any non-empty, non-null value | **Present** — stops the chain and uses this value. |
+| `false`, `0`, `'0'` | **Present** — stops the chain immediately. |
+| `null` or `''` | **Falls through** to the next term in the chain. |
+| Unknown source name | Treated as a missing key — falls through. |
+| Single `$source.key` (no `\|\|`) | A missing key throws a `PropertyException`. |
+| Plain value with no `$source.key` | Never treated as a chain — `"a \|\| b"` stays the literal string `a \|\| b`. |
 
 <Aside type="caution">
   Always quote fallback chains in YAML. An unquoted `#` character begins a YAML comment and will silently truncate your default value.
@@ -324,7 +321,7 @@ datasource:
 
 ## Profiles
 
-Use the `profile` parameter of `#[WinterBootApplication]` to load environment-specific configuration. Winter Boot merges `application-{profile}.yml` on top of the base `application.yml`, with profile-specific values taking precedence.
+Use the `profile` parameter of `#[WinterBootApplication]` to load environment-specific configuration. With a profile set, Winter Boot reads `application-{profile}.yml` **instead of** `application.yml` — the files are not merged, so the profile file must contain the complete configuration. The logger follows the same pattern: it reads `logger-{profile}.yml` and falls back to `logger.yml`.
 
 ```php title="Application.php"
 <?php
@@ -359,11 +356,13 @@ server:
 
 winter:
     application:
+        name: My Service
+        id: my-service
         version: 1.0.0
 ```
 
 <Aside type="tip">
-  Combine profiles with environment-variable fallback chains to keep secrets out of version control. Store the profile name itself in `$_ENV['APP_PROFILE']` and pass it at deploy time.
+  Because the profile is fixed in the attribute, many teams skip profiles and keep a single `application.yml` whose environment-specific values come from fallback chains (`"$env.DB_URL || ..."`), or ship one config directory per environment and select it with `-c`.
 </Aside>
 
 ## Complete Example

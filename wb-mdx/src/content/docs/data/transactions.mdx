@@ -7,16 +7,16 @@ description: "Use #[Transactional] annotations or PlatformTransactionManager to 
 
 import { Aside, Card, CardGrid, Tabs, TabItem } from '@astrojs/starlight/components';
 
-Winter Boot supports two complementary approaches to transaction management. **Declarative** transactions use the `#[Transactional]` method annotation — the framework wraps the method in a transaction automatically, handling commit and rollback with no extra code in your business logic. **Programmatic** transactions give you fine-grained control via `PlatformTransactionManager`, which is useful when transaction boundaries cannot be expressed as a single method call or when you need to interact with dynamically-resolved data sources such as in multi-tenant scenarios.
+Winter Boot offers two ways to manage transactions. **Declarative** transactions use the `#[Transactional]` attribute: the framework wraps the method in a transaction and commits or rolls back for you. **Programmatic** transactions use `PlatformTransactionManager` directly, which is useful when a transaction does not map to a single method call, or when the datasource is chosen at runtime (multi-tenant apps).
 
 ## Enabling Transaction Management
 
-Before using either approach, add `#[EnableTransactionManagement]` to your application entry-point class. Without this annotation, the transaction infrastructure is not bootstrapped.
+To use `#[Transactional]`, add `#[EnableTransactionManagement]` to your application entry-point class. (Programmatic transactions work without it — a transaction manager bean is registered for every datasource either way.)
 
 ```php title="MyApplication.php"
 use dev\winterframework\stereotype\WinterBootApplication;
 use dev\winterframework\core\app\WinterWebSwooleApplication;
-use dev\winterframework\txn\stereotype\EnableTransactionManagement;
+use dev\winterframework\stereotype\txn\EnableTransactionManagement;
 
 #[EnableTransactionManagement]
 #[WinterBootApplication(
@@ -33,7 +33,7 @@ class MyApplication {
 ```
 
 <Aside type="caution">
-  Transaction management is opt-in. If you omit `#[EnableTransactionManagement]`, `#[Transactional]` annotations are silently ignored and no transaction managers are registered.
+  If you omit `#[EnableTransactionManagement]`, `#[Transactional]` attributes are **silently ignored** — the methods run without a transaction.
 </Aside>
 
 ---
@@ -102,7 +102,7 @@ Annotate any service or component method with `#[Transactional]` to have the fra
   Bean name of the `PlatformTransactionManager` to use. Defaults to the primary datasource's transaction manager.
 
 - **`propagation`** `int` (default: `PROPAGATION_REQUIRED`)
-  Transaction propagation behaviour. See the propagation constants table below.
+  Transaction propagation behavior. See the propagation constants table below.
 
 - **`isolation`** `int` (default: `ISOLATION_DEFAULT`)
   Database isolation level to request from the driver.
@@ -111,7 +111,7 @@ Annotate any service or component method with `#[Transactional]` to have the fra
   Transaction timeout in seconds. `-1` means use the driver default.
 
 - **`readOnly`** `bool` (default: `false`)
-  Mark the transaction as read-only. A rollback is performed at the end instead of a commit.
+  Mark the transaction as read-only. It is rolled back at the end instead of committed.
 
 - **`rollbackFor`** `array` (default: `all exceptions`)
   Array of exception class names that must trigger a rollback.
@@ -124,7 +124,7 @@ Annotate any service or component method with `#[Transactional]` to have the fra
 
 ### Propagation Constants
 
-| Constant | Value | Behaviour |
+| Constant | Value | Behavior |
 |---|---|---|
 | `PROPAGATION_REQUIRED` | `0` | Use the current transaction, or create a new one if none exists *(default)* |
 | `PROPAGATION_SUPPORTS` | `1` | Use the current transaction if one exists; otherwise run non-transactionally |
@@ -230,8 +230,8 @@ class UserService {
 
 ## Concurrency and Connections
 
-- Transaction state belongs to the current request (Swoole coroutine). Concurrent requests in the same worker never join, commit or roll back each other's transactions.
-- `REQUIRES_NEW` and `NOT_SUPPORTED` borrow a second connection from the pool for the duration of the call. The data source must implement `IsolatedConnectionProvider` to get that second connection (the built-in PDO and OCI data sources do). A custom data source without it keeps the old behaviour: the inner work runs on the outer connection, so it is not isolated, and a warning is logged once. The second connection counts against the pool's `maxConnections`, but it never waits for a free slot: the request already holds one, and waiting could deadlock concurrent requests on each other. Under full load the pool can therefore briefly hold up to `maxConnections` extra connections, one per nested `REQUIRES_NEW`/`NOT_SUPPORTED` in flight; new requests wait until it is back under the cap.
+- Transaction state belongs to the current request. Concurrent requests in the same worker never join, commit, or roll back each other's transactions.
+- `REQUIRES_NEW` and `NOT_SUPPORTED` borrow a second connection from the pool for the duration of the call. The data source must implement `IsolatedConnectionProvider` to get that second connection (the built-in PDO and OCI data sources do). With a custom data source that does not implement it, the inner work runs on the outer connection (so it is not isolated) and a warning is logged once. The second connection counts against the pool's `maxConnections`, but it never waits for a free slot: the request already holds one, and waiting could deadlock concurrent requests on each other. Under full load the pool can therefore briefly hold up to `maxConnections` extra connections, one per nested `REQUIRES_NEW`/`NOT_SUPPORTED` in flight; new requests wait until it is back under the cap.
 - When a request ends, its connection goes back to the pool only after any open transaction is rolled back, so the next request always starts clean.
 - If a connection cannot be opened inside a request, `CannotGetConnectionException` is thrown; the request never falls back to a shared connection.
 

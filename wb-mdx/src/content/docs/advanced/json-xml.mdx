@@ -7,9 +7,9 @@ description: "Map JSON and XML payloads to typed PHP objects using PHP 8 attribu
 
 import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
 
-Winter Boot provides first-class support for mapping JSON and XML payloads to strongly typed PHP objects using PHP 8 attributes. Annotate your model properties with `#[JsonProperty]` or the PAXB attributes (`#[XmlElement]`, `#[XmlAttribute]`, and friends), then let `ObjectCreator` or your REST controller deserialize the incoming data automatically. No boilerplate mapping code is required — the framework inspects attribute metadata at runtime and populates each field, including nested objects and typed lists. The same DTO class can carry both JSON and XML annotations, so a single object handles either format depending on the request's `Content-Type` header.
+Winter Boot maps JSON and XML payloads onto typed PHP objects using attributes. Annotate model properties with `#[JsonProperty]` or the PAXB attributes (`#[XmlElement]`, `#[XmlAttribute]`, and others), and `ObjectCreator` — or your REST controller — fills them in for you, including nested objects and typed lists. One DTO class can carry both JSON and XML attributes and accept either format, depending on the request's `Content-Type`.
 
-## JSON Serialization with `#[JsonProperty]`
+## JSON Binding with `#[JsonProperty]`
 
 Apply `#[JsonProperty]` to any property you want to bind from a JSON payload. The framework maps the external JSON key to the PHP property and performs type coercion automatically.
 
@@ -29,6 +29,8 @@ class Product {
 
     #[JsonProperty(name: 'tags', listClass: Tag::class)]
     private array $tags = [];             // list of nested objects
+
+    public function getName(): string { return $this->name; }
 }
 ```
 
@@ -68,11 +70,11 @@ echo $product->getName();  // "Pen"
 When a controller method parameter is annotated with `#[RequestBody]` and the request carries `Content-Type: application/json`, the framework calls `ObjectCreator::createObject()` for you:
 
 ```php title="src/Controller/ProductController.php"
-use dev\winterframework\web\rest\RestController;
-use dev\winterframework\web\RequestMapping;
-use dev\winterframework\web\RequestMethod;
+use dev\winterframework\stereotype\RestController;
+use dev\winterframework\stereotype\web\RequestMapping;
+use dev\winterframework\enums\RequestMethod;
 use dev\winterframework\web\MediaType;
-use dev\winterframework\web\RequestBody;
+use dev\winterframework\stereotype\web\RequestBody;
 use dev\winterframework\web\http\ResponseEntity;
 
 #[RestController]
@@ -94,9 +96,9 @@ class ProductController {
 
 ---
 
-## XML Serialization with PAXB Attributes
+## XML Binding with PAXB Attributes
 
-Winter Boot's PAXB (PHP Architecture for XML Binding) mirrors Java's JAXB, providing a set of attributes that describe how a class maps to an XML document. Annotate your class with `#[XmlRootElement]` and its properties with the appropriate XML attributes.
+Winter Boot's PAXB (PHP Architecture for XML Binding) mirrors Java's JAXB: a set of attributes that describe how a class maps to an XML document. Annotate your class with `#[XmlRootElement]` and its properties with the appropriate XML attributes.
 
 ```php title="src/Model/Product.php"
 use dev\winterframework\paxb\attr\XmlRootElement;
@@ -177,7 +179,7 @@ Applied to a property, `#[XmlAnyAttribute]` captures any XML attributes not matc
 <details>
 <summary>#[XmlPropertyOrder]</summary>
 
-Applied to a class, `#[XmlPropertyOrder]` controls the serialisation order of child elements. The `order` parameter lists property names in the desired output order. Set `ignoreUnknown` to `true` to silently drop unrecognised elements during deserialization.
+Applied to a class, `#[XmlPropertyOrder]` controls the order of child elements when writing XML. The `order` parameter lists property names in the desired output order. Set `ignoreUnknown` to `true` to silently drop unrecognized elements when reading.
 
 </details>
 
@@ -207,7 +209,7 @@ $mapper = new XmlObjectMapper();
 $mapper->setParserProperty(XMLReader::VALIDATE);
 $product = $mapper->readValue($xml, Product::class, validate: true);
 
-// Serialise back to an XML string
+// Serialize back to an XML string
 $xmlString = $mapper->writeValue($product);
 ```
 
@@ -242,6 +244,7 @@ class Product {
     #[XmlElement(name: 'tag', listClass: Tag::class)]
     private array $tags = [];
 
+    public function getSku(): string { return $this->sku; }
     public function getName(): string { return $this->name; }
     public function getPrice(): float { return $this->price; }
 }
@@ -261,7 +264,7 @@ class ProductController {
     public function createProduct(
         #[RequestBody] Product $product
     ): ResponseEntity {
-        return ResponseEntity::created()->withJson([
+        return ResponseEntity::created('/api/v1/products/' . $product->getSku())->withJson([
             'name'  => $product->getName(),
             'price' => $product->getPrice(),
         ]);
@@ -270,5 +273,5 @@ class ProductController {
 ```
 
 <Aside type="note">
-  `#[JsonProperty]` and `#[XmlElement]` can coexist on the same property. The framework selects the correct deserializer based on the request's `Content-Type` header, so you only need one DTO class to serve both formats.
+  `#[JsonProperty]` and `#[XmlElement]` can coexist on the same property. The framework picks the parser from the request's `Content-Type`, so one DTO class serves both formats. These attributes control **input** binding; for JSON output, return an array or implement `JsonSerializable`.
 </Aside>

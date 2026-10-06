@@ -1,11 +1,11 @@
 ---
-title: "application.yml Reference: Every Top-Level Configuration Key"
+title: "application.yml Reference: Configuration Keys"
 sidebar:
   label: "application.yml"
-description: "Complete reference for application.yml: server, winter, datasource, modules, logger, and module-specific keys, with a link to the concept page that documents each."
+description: "Reference for application.yml: server, winter, datasource, management, modules, property sources, and library keys, with links to the page that documents each."
 ---
 
-`application.yml` is the central configuration file for a Winter Boot application. It must live in the `config` directory referenced by `#[WinterBootApplication(configDirectory: [...])]`. This page indexes every top-level key the framework and its official libraries recognise, with one-line descriptions and links to the concept page that documents each in full.
+`application.yml` is the central configuration file for a Winter Boot application. It must live in the `config` directory referenced by `#[WinterBootApplication(configDirectory: [...])]`. This page indexes the keys the framework and its official libraries recognize, with short descriptions and links to the page that documents each in full.
 
 For prose walkthroughs of properties, `#[Value]` injection, and additional property sources see [Configuration](/winter-boot/configuration).
 
@@ -55,25 +55,44 @@ winter:
     rest:
         timeout: 10.0
         connect-timeout: 5.0
-    namespaces:
-        cacheTime: 10
-    route:
-        cacheTime: 10
     task:
         async:
+            poolSize: 1
+            queueCapacity: 50
+            argsSize: 2048
             maxConcurrency: 0
+            queueStorage:
+                handler: dev\winterframework\util\async\AsyncInMemoryQueue
+        scheduling:
+            poolSize: 1
+            queueCapacity: 50
+    kv:
+        port: 0          # 0 = KV store off
+        address: 127.0.0.1
+    queue:
+        port: 0          # 0 = queue store off
+        address: 127.0.0.1
+    coroutine:
+        db:
+            enabled: true
+            maxConnections: 50
+            maxWaitMs: 5000
+    telemetry:
+        enabled: true
     security:
         unserialize:
             allowedClasses: [App\Dto\User, App\Dto\Cart]
 ```
 
-- `application.name`, `application.id`, `application.version`: identity used in logs and actuator.
+- `application.name`, `application.id`, `application.version`: service identity, shown in the startup banner and available from `ApplicationContext`.
 - `web.request.enableTrace`: when `true`, logs a `TRACE START` line on request arrival and a `TRACE FINISH` line (method, URI, response status, time taken) on completion. Default `false`. Documented in [Logging](/winter-boot/ops/logging).
 - `rest.timeout`: overall RestTemplate request timeout in seconds. Default `10.0`. Documented in [RestTemplate](/winter-boot/web/rest-template).
 - `rest.connect-timeout`: RestTemplate connect timeout in seconds. Default `5.0`. Documented in [RestTemplate](/winter-boot/web/rest-template).
-- `namespaces.cacheTime`: how long reflection scan results are cached.
-- `route.cacheTime`: how long route mappings are cached.
-- `task.async.maxConcurrency`: most async jobs one async worker runs at the same time; `0` (default) = unlimited. Documented in [Async Tasks](/winter-boot/async/async-tasks).
+- `task.async.*`: async worker pool size, queue capacity, argument size limit, per-worker concurrency, and queue storage. Documented in [Async Tasks](/winter-boot/async/async-tasks).
+- `task.scheduling.*`: scheduler pool size and capacity. Documented in [Scheduling](/winter-boot/async/scheduling).
+- `kv.*`, `queue.*`: node-local KV and queue stores (`port`, `address`, `token`). Documented in [Local Stores](/winter-boot/advanced/local-stores).
+- `coroutine.db.*`: database connection pool defaults. Documented in [Database](/winter-boot/data/database#connection-pooling).
+- `telemetry.enabled`: set `false` to switch OpenTelemetry off. Documented in [Telemetry](/winter-boot/ops/telemetry).
 - `security.unserialize.allowedClasses`: classes that may be rebuilt when session, shared-cache and shared-queue data is read back. Absent (default) = any class; a list (or comma-separated string) = only those; `[]` = none (objects become `__PHP_Incomplete_Class`). Documented in [Request Sessions](/winter-boot/core/request-sessions).
 
 ### `datasource`
@@ -97,9 +116,17 @@ datasource:
             autoCommit: true
 ```
 
-Documented in [Datasources & PdbcTemplate](/winter-boot/data/database).
+Documented in [Database](/winter-boot/data/database).
 
 An optional `migrations.enabled: true` on a datasource entry opts the connection into [SQL migrations](/winter-boot/data/migrations).
+
+### `multitenant-datasource`
+
+List of multi-tenant datasources, each with a `name` and a `providerClass` implementing `TenantDataSourceProvider`. Each entry registers a `<name>-manager` bean. Documented in [Database](/winter-boot/data/database#multi-tenant-support).
+
+### `management`
+
+Actuator endpoints: `management.endpoints.enabled` (global switch) and `management.endpoint.<name>.enabled` / `.path` per endpoint. Documented in [Actuator](/winter-boot/ops/actuator).
 
 ### `modules`
 
@@ -109,30 +136,28 @@ List of Winter modules (libraries) to load at startup.
 modules:
     - module: 'dev\winterframework\kafka\KafkaModule'
       enabled: true
-      configFile: 'config/kafka-config.yml'
+      configFile: kafka-config.yml
 ```
 
 Modules are loaded in order. Documented in [The Module System](/winter-boot/core/module-system).
 
-### `logger`
+### Logging (separate file)
 
-Monolog-cascade configuration for logging channels, handlers, and formatters.
-
-Documented in [Logging](/winter-boot/ops/logging).
+Logging is not configured in `application.yml`; it lives in `logger.yml` in the same config directory. Documented in [Logging](/winter-boot/ops/logging).
 
 ### `propertySources`
 
-List of additional property sources to load on top of `application.yml`.
+List of additional property sources (environment variables, INI files, custom sources) that values can reference with `$name.key`.
 
-Documented in [Configuration](/winter-boot/configuration).
+Documented in [Configuration](/winter-boot/configuration#additional-property-sources).
 
 ### Custom application keys
 
-Any additional top-level key you define is exposed to `#[Value("myApp.value1")]` and can be read via `PropertyContext`. Convention is to nest your application config under a single namespace (for example `myApp:`).
+Any additional top-level key you define can be injected with `#[Value('${myApp.value1}')]` or read through `ApplicationContext::getProperty()`. Convention is to nest your application config under a single namespace (for example `myApp:`).
 
 ## Library-specific keys
 
-Each Winter library reads its own top-level keys. The keys can live directly in `application.yml` or in a module-specific file referenced by the `configFile` entry under `modules:`.
+Each Winter library reads its own top-level keys from the module config file referenced by its `configFile` entry under `modules:` (see each library's page for the format).
 
 ### `opensearch`
 
@@ -194,7 +219,7 @@ For libraries with substantial config, keep it in a dedicated file and reference
 modules:
     - module: 'dev\winterframework\kafka\KafkaModule'
       enabled: true
-      configFile: 'config/kafka-config.yml'
+      configFile: kafka-config.yml
 ```
 
 ```yaml title="config/kafka-config.yml"
@@ -204,4 +229,4 @@ kafka:
           # ...
 ```
 
-The framework loads the referenced file and merges its keys into the property context so `#[Value]` and library beans can read them uniformly.
+A relative `configFile` is looked up in your config directories. The module reads the file itself; its keys are **not** merged into `application.yml` properties, so `#[Value]` cannot see them.

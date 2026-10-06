@@ -17,11 +17,11 @@ Winter is deliberately modular. You install the framework, then add only the lib
 | --- | --- | --- |
 | `suvera/winter-boot` | The framework core: DI, AOP, REST, PDBC, transactions, migrations, async, scheduling, actuator, telemetry | Always |
 | `suvera/winter-doctrine` | Doctrine ORM and DBAL plus multi-tenant datasources | You need ORM entities or Doctrine DBAL |
-| `suvera/winter-modules` | 8 official integration modules (Kafka, SQS, S3, OpenSearch, Redis, Memcache, DTCE, Security) | You integrate with those systems |
+| `suvera/winter-modules` | Integration modules for Kafka, SQS, S3, OpenSearch, Redis, Memcache, and DTCE | You integrate with those systems |
 | `suvera/winter-eureka` | Service discovery via Consul or Netflix Eureka | You run multiple service instances behind discovery |
-| `suvera/winter-memdb` | Embedded in-memory servers (Redis, Ignite, Memcached, Hazelcast) launched by the app *EXPERIMENTAL* | You want the app to manage the cache/database server |
+| `suvera/winter-memdb` | Embedded in-memory servers (Redis, Ignite, Memcached, Hazelcast) launched by the app (*experimental*) | You want the app to manage the cache/database server |
 
-<LinkCard title="See the Libraries tab" href="/winter-boot/modules/overview" description="Full catalog of official libraries, with per-need guidance and links to each integration&#x27;s dedicated page." />
+<LinkCard title="Browse all libraries" href="/winter-boot/modules/overview" description="Full catalog of official libraries, with guidance on choosing one and links to each library&#x27;s page." />
 
 ## What is Winter Boot?
 
@@ -29,6 +29,8 @@ Winter Boot turns a plain PHP class into a fully managed application context wit
 
 ```php title="Application.php"
 <?php
+
+require_once __DIR__ . '/vendor/autoload.php';
 
 use dev\winterframework\stereotype\WinterBootApplication;
 use dev\winterframework\core\app\WinterWebSwooleApplication;
@@ -49,35 +51,32 @@ MyApplication::main();
 ```
 
 <Aside type="note">
-  Winter Boot requires **PHP 8.5 or later**. A PHP extension is required for the built-in HTTP server (`WinterWebSwooleApplication`), the async and scheduled tasks (`#[Async]`, `#[Scheduled]`), and several libraries (Memdb, Eureka, Kafka, DTCE). See the [Installation](/winter-boot/installation) guide to set everything up.
+  Winter Boot requires **PHP 8.5 or later**, the bundled `winter_boot` extension, and the `swoole` extension (for the built-in HTTP server, `#[Async]`, `#[Scheduled]`, and several libraries). The [Installation](/winter-boot/installation) guide sets everything up — the Docker image ships with both extensions.
 </Aside>
 
 ## Key features
 
-Explore what Winter Boot can do for your microservices project.
-
 <CardGrid>
-  <LinkCard title="Quickstart" href="/winter-boot/quickstart" description="Install the package, write your first service and REST controller, and have a running HTTP server in minutes." />
+  <LinkCard title="Quickstart" href="/winter-boot/quickstart" description="Write your first service and REST controller and have a running HTTP server in minutes." />
   <LinkCard title="Dependency Injection" href="/winter-boot/core/dependency-injection" description="Attribute-driven DI with <code>#[Service]</code>, <code>#[Component]</code>, <code>#[Autowired]</code>, <code>#[Qualifier]</code>, and <code>#[Bean]</code> factories." />
   <LinkCard title="REST Controllers" href="/winter-boot/web/rest-controllers" description="Map HTTP routes with <code>#[RestController]</code>, <code>#[RequestMapping]</code>, <code>#[GetMapping]</code>, <code>#[PostMapping]</code>, and more." />
   <LinkCard title="AOP & Custom Stereotypes" href="/winter-boot/core/aop" description="Implement cross-cutting concerns with custom attributes and aspect-oriented interceptors." />
   <LinkCard title="Databases & Transactions" href="/winter-boot/data/database" description="Manage datasources, run SQL migrations, and control transactions declaratively with <code>#[Transactional]</code>." />
-  <LinkCard title="Caching" href="/winter-boot/ops/caching" description="Add response and method-level caching with a single attribute, backed by any cache provider." />
+  <LinkCard title="Caching" href="/winter-boot/ops/caching" description="Cache method results with a single attribute, backed by in-memory, local KV, or Redis stores." />
   <LinkCard title="Async & Scheduling" href="/winter-boot/async/async-tasks" description="Run background work with <code>#[Async]</code> and cron-style scheduling with <code>#[Scheduled]</code>." />
-  <LinkCard title="Module System" href="/winter-boot/core/module-system" description="Extend the framework with community libraries or build your own by implementing <code>WinterModule</code>." />
+  <LinkCard title="Module System" href="/winter-boot/core/module-system" description="Extend the framework with official libraries or build your own by implementing <code>WinterModule</code>." />
 </CardGrid>
 
 ## Requirements
 
-Before you install Winter Boot, make sure your environment meets these prerequisites.
-
 | Requirement | Version / Notes |
 |---|---|
 | PHP | 8.5 or later |
-| PHP extension | Required for HTTP server, `#[Async]`, `#[Scheduled]`, and several libraries (see [Installation](/winter-boot/installation)) |
-| Composer | Any recent version |
+| `winter_boot` extension | Always required (bundled with the framework) |
+| `swoole` extension | Required for the HTTP server, `#[Async]`, `#[Scheduled]`, and several libraries |
+| Composer | 2.x |
 
-Install PHP, the required extension, and the framework packages by following the [Installation](/winter-boot/installation) guide — Docker is the recommended path.
+The [Installation](/winter-boot/installation) guide covers both the Docker path (recommended) and a manual install.
 
 ## Spring Boot inspiration
 
@@ -98,7 +97,7 @@ If you have built services with Spring Boot, Winter Boot will feel immediately f
 | `@Async` | `#[Async]` |
 | `@Scheduled` | `#[Scheduled]` |
 
-The application context lifecycle, property externalisation via `application.yml`, and the concept of a single annotated entry-point class all follow the same patterns as Spring Boot.
+The application context lifecycle, property externalization via `application.yml`, and the concept of a single annotated entry-point class all follow the same patterns as Spring Boot.
 
 ## PHP 8 attributes and dependency injection
 
@@ -125,7 +124,7 @@ class UserServiceImpl implements UserService
 
 ## Aspect-oriented programming
 
-Cross-cutting concerns such as caching, transactions, retries, and custom interceptors are expressed as attributes applied to methods and classes. The AOP weaving happens at container startup, with no proxy code to write and no separate aspect files to maintain.
+Cross-cutting concerns such as caching, transactions, locking, and your own custom checks are expressed as attributes applied to methods and classes. The framework weaves them in at startup, so there is no proxy code to write.
 
 <Aside type="tip">
   See the [AOP & Custom Stereotypes](/winter-boot/core/aop) page for a full walkthrough of defining aspects, join points, and custom stereotype attributes.
@@ -133,4 +132,4 @@ Cross-cutting concerns such as caching, transactions, retries, and custom interc
 
 ## Microservices focus
 
-Winter Boot is optimised for the microservice deployment model: stateless HTTP workers managed by the built-in server, an optional in-process key-value store and task queue, built-in Prometheus metrics via the Actuator, and an extensible module system for integrations with Redis, Kafka, Doctrine ORM, Amazon SQS/S3, OpenSearch, and service-discovery solutions such as Consul and Netflix Eureka. See the [Libraries overview](/winter-boot/modules/overview) for the full catalog and guidance on choosing the right library.
+Winter Boot is optimized for the microservice deployment model: stateless HTTP workers managed by the built-in server, an optional in-process key-value store and task queue, built-in Prometheus metrics via the Actuator, and an extensible module system for integrations with Redis, Kafka, Doctrine ORM, Amazon SQS/S3, OpenSearch, and service-discovery solutions such as Consul and Netflix Eureka. See the [Libraries overview](/winter-boot/modules/overview) for the full catalog and guidance on choosing the right library.

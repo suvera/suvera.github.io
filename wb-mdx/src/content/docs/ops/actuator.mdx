@@ -7,11 +7,11 @@ description: "Enable built-in HTTP endpoints to inspect beans, environment, heal
 
 import { Aside } from '@astrojs/starlight/components';
 
-The Winter Boot Actuator is a built-in observability layer that exposes operational information about your running application through HTTP endpoints. Without writing any controller code you can inspect registered beans, active configuration properties, environment variables, scheduled tasks, request mappings, and the health of your application's dependencies. The Actuator is designed for microservice environments where monitoring agents, load balancers, and orchestration platforms need a reliable, machine-readable way to query application state.
+The Actuator exposes operational information about your running application over HTTP, with no controller code: registered beans, configuration properties, environment variables, scheduled tasks, request mappings, Prometheus metrics, and the health of your dependencies. Load balancers, orchestrators, and monitoring agents can use these JSON endpoints to check on the service.
 
 ## Configuration
 
-All Actuator endpoints are **disabled by default**. Enable them individually — or globally — in `application.yml`. Each endpoint can also be mounted at a custom path.
+All Actuator endpoints are **disabled by default**. Turn on the global switch, then enable each endpoint you want in `application.yml`. Each endpoint can also be mounted at a custom path.
 
 ```yaml title="application.yml"
 management:
@@ -20,28 +20,31 @@ management:
     endpoint:
         beans:
             enabled: true
-            path: "acme/beans"
+            path: "manage/beans"
         configprops:
             enabled: true
-            path: "acme/configprops"
+            path: "manage/configprops"
         env:
             enabled: true
-            path: "acme/env"
+            path: "manage/env"
         health:
             enabled: true
-            path: "acme/health"
+            path: "manage/health"
         info:
             enabled: true
-            path: "acme/info"
+            path: "manage/info"
         mappings:
             enabled: true
-            path: "acme/mappings"
+            path: "manage/mappings"
         scheduledtasks:
             enabled: true
-            path: "acme/scheduledtasks"
+            path: "manage/scheduledtasks"
+        prometheus:
+            enabled: true
+            path: "manage/prometheus"
         heapdump:
             enabled: true
-            path: "acme/heapdump"
+            path: "manage/heapdump"
 ```
 
 <Aside type="caution">
@@ -52,15 +55,17 @@ Setting `management.endpoints.enabled: false` (or omitting it entirely) disables
 
 | Endpoint | Default path | Description |
 |---|---|---|
-| `beans` | `acme/beans` | Lists all beans registered in the Winter Boot application context. |
-| `configprops` | `acme/configprops` | Displays all `application.yml` properties (secret-looking values masked). |
-| `env` | `acme/env` | Exposes environment variables (secret-looking values masked). |
-| `health` | `acme/health` | Aggregated health status from all registered `HealthIndicator` beans. |
-| `info` | `acme/info` | Arbitrary application information contributed by `InfoContributor` beans. |
-| `mappings` | `acme/mappings` | Lists all registered HTTP route mappings. |
-| `scheduledtasks` | `acme/scheduledtasks` | Shows all tasks registered with the `#[Scheduled]` attribute. |
-| `prometheus` | `acme/prometheus` | Prometheus metrics, including `http_request_duration` labelled by route template (e.g. `/users/{id}`) and method. |
-| `heapdump` | `acme/heapdump` | Lists the server's processes (master, workers, task processes) with PID and memory details. |
+| `beans` | `/beans` | Lists all beans registered in the application context. |
+| `configprops` | `/configprops` | Displays all `application.yml` properties (secret-looking values masked). |
+| `env` | `/env` | Exposes environment variables (secret-looking values masked). |
+| `health` | `/health` | Aggregated health status from all `#[HealthInformer]` beans. |
+| `info` | `/info` | Application information contributed by `#[InfoInformer]` beans. |
+| `mappings` | `/mappings` | Lists all registered HTTP route mappings. |
+| `scheduledtasks` | `/scheduledtasks` | Shows all tasks registered with the `#[Scheduled]` attribute. |
+| `prometheus` | `/prometheus` | Prometheus metrics, including `http_request_duration` labeled by route template (e.g. `/users/{id}`) and method. |
+| `heapdump` | `/heapdump` | Lists the server's processes (master, workers, task processes) with PID and memory details. |
+
+Each endpoint is served at its default path unless you set `path`. The example above moves them all under `manage/`.
 
 <Aside type="caution">
   Actuator endpoints are served on the application port **without authentication**. `configprops` and `env` replace values whose key contains `password`, `secret`, `token`, `credential`, `api key`, `private key`, `access key`, `auth`, `dsn`, `cookie` or `session` with `******`, but other values (hostnames, usernames, internal URLs) are still shown. Keep `beans`, `configprops`, `env` and `mappings` disabled in production, or protect the paths with a `HandlerInterceptor`.
@@ -71,14 +76,14 @@ Setting `management.endpoints.enabled: false` (or omitting it entirely) disables
 Once an endpoint is enabled and the application is running, query it with a standard HTTP request:
 
 ```bash
-curl https://your.service.domain/acme/health
+curl http://localhost:8080/manage/health
 
-curl https://your.service.domain/acme/info
+curl http://localhost:8080/manage/info
 ```
 
 ## Custom Health Checks with HealthIndicator
 
-The `/health` endpoint aggregates the status reported by every bean that implements `HealthIndicator` and is annotated with `#[HealthInformer]`. This makes it straightforward to add health checks for databases, message brokers, external APIs, or any other dependency.
+The health endpoint combines the status reported by every class that implements `HealthIndicator` and is annotated with `#[HealthInformer]`. Add one for each dependency you care about: databases, message brokers, external APIs, and so on.
 
 Implement the `health(): Health` method and return one of the `Health` factory methods for the appropriate state:
 
@@ -105,22 +110,23 @@ class DatabaseHealthIndicator implements HealthIndicator
 
     public function health(): Health
     {
-        $ok = $this->pdbc->queryForScalar('select 1 from dual');
-
-        return $ok
-            ? Health::up()
-            : Health::down()->withDetail('database', 'connection check failed');
+        try {
+            $this->pdbc->queryForScalar('SELECT 1');
+            return Health::up();
+        } catch (\Throwable $ex) {
+            return Health::down($ex)->withDetail('database', 'connection check failed');
+        }
     }
 }
 ```
 
 <Aside type="note">
-You can register as many `#[HealthInformer]` beans as you need. The `/health` endpoint combines all of their statuses: if any single indicator reports `DOWN`, the overall status is `DOWN`.
+You can register as many `#[HealthInformer]` beans as you need. The health endpoint combines all of their statuses: if any single indicator reports `DOWN`, the overall status is `DOWN`.
 </Aside>
 
 ## Custom Application Info with InfoContributor
 
-The `/info` endpoint is populated by beans that implement `InfoContributor` and are annotated with `#[InfoInformer]`. Use it to surface metadata such as the application name, version, build timestamp, or Git revision.
+The info endpoint is populated by beans that implement `InfoContributor` and are annotated with `#[InfoInformer]`. Use it to surface metadata such as the application name, version, build timestamp, or Git revision.
 
 Implement the `contribute(InfoBuilder $info): void` method and call `$info->withDetail(key, value)` for each piece of information you want to expose. The method is chainable.
 
@@ -144,6 +150,6 @@ class ApplicationInfoContributor implements InfoContributor
 Querying the info endpoint returns a JSON object that merges all contributors:
 
 ```bash
-curl https://your.service.domain/acme/info
+curl http://localhost:8080/manage/info
 # {"appName":"ExampleMicroService","appVersion":"1.0.0-1","buildTimestamp":"2024-01-15T10:30:00Z"}
 ```

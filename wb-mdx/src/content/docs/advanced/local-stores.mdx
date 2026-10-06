@@ -2,22 +2,22 @@
 title: "Winter Boot Node-Local In-Memory KV and Queue Stores"
 sidebar:
   label: "Local Stores"
-description: "Share fast in-memory state across all server workers on a host using Winter Boot's KV store and Queue store, with no external infrastructure required."
+description: "Share fast in-memory state and queues between all server workers on one host with Winter Boot's optional KV and queue stores — no external infrastructure needed."
 ---
 
 import { Aside } from '@astrojs/starlight/components';
 
-Winter Boot ships two lightweight in-process stores — a Key-Value store and a Queue store — that run as child processes alongside your server workers. Every worker process on the same host connects to these stores over a local TCP socket, giving them a shared memory space with zero external infrastructure. The stores are intentionally node-local: they are fast because no network round-trip leaves the machine, but they do not replicate across hosts. For distributed, multi-node state use the `winter-data-redis` module instead.
+Winter Boot ships two lightweight stores — a key-value store and a queue store — that run as child processes next to your server workers. Every worker on the host talks to them over a local TCP socket, so they can share state with no external infrastructure. Both are optional and off by default, and both require the `WinterWebSwooleApplication` runner.
 
 <Aside type="note">
-  Both stores are **node-local**. All worker processes on the same host share the same store instance, but two separate hosts each run their own independent stores. If you need cross-node shared state, see the [Redis library](/winter-boot/modules/data-redis).
+  Both stores are **node-local** and **in memory**: workers on the same host share them, but each host has its own, and their contents are lost on restart. For shared or persistent state across hosts, use the [Redis library](/winter-boot/modules/data-redis).
 </Aside>
 
 ---
 
 ## Key-Value Store
 
-The KV store provides a fast, typed key-value cache scoped by a *domain* string. It is used internally by the `SharedKvCache` bean and is available to any bean that autowires `KvTemplate`.
+The KV store is a fast key-value store whose keys are grouped by a *domain* string. Any bean can use it by autowiring `KvTemplate`, and the `SharedKvCache` cache backend is built on it.
 
 ### Enabling the KV Store
 
@@ -28,6 +28,7 @@ winter:
     kv:
         port: 7880       # local TCP port the KV server listens on
         address:         # optional bind address; defaults to 127.0.0.1
+        token:           # optional shared secret; a random one is generated per start
 ```
 
 ### Autowiring `KvTemplate`
@@ -78,13 +79,13 @@ class SessionCacheService {
 
 ### Shared KV Cache
 
-The `SharedKvCache` bean is backed by this KV store. Enabling the store automatically makes `SharedKvCache` available to any class annotated with `#[Cacheable]`, with no additional configuration required.
+To use the KV store as a cache backend for `#[Cacheable]`, register a `CacheManager` bean that wraps a `SharedKvCache` — see [Caching](/winter-boot/ops/caching#sharedkvcache--local-node-kv-store).
 
 ---
 
 ## Queue Store
 
-The Queue store provides a lightweight FIFO queue scoped by a *queue name* string. The framework uses it internally as the default backing store for `#[Async]` tasks and scheduled workers. You can also enqueue and dequeue your own messages directly via `QueueSharedTemplate`.
+The queue store is a lightweight FIFO queue, addressed by queue name. Use it through `QueueSharedTemplate` to pass messages between workers on the same host. (`#[Async]` does not use it — async calls have their own shared-memory queue.)
 
 ### Enabling the Queue Store
 
@@ -93,6 +94,7 @@ winter:
     queue:
         port: 7881       # local TCP port the queue server listens on
         address:         # optional bind address; defaults to 127.0.0.1
+        token:           # optional shared secret; a random one is generated per start
 ```
 
 ### Autowiring `QueueSharedTemplate`
@@ -132,20 +134,6 @@ class NotificationDispatcher {
 | `stats` | `stats(): array` | Return store statistics. |
 | `ping` | `ping(): int` | Health-check the store; returns latency in microseconds. |
 
-### Async Task Queue
-
-When `#[EnableAsync]` is active on your application class, Winter Boot automatically registers worker processes that consume from the internal async queue. The Queue store must be enabled for this to work:
-
-```yaml title="application.yml"
-winter:
-    queue:
-        port: 7881
-```
-
-<Aside type="note">
-  The Queue store is required for `#[Async]` tasks. If the port is not set (or is `0`), the async worker processes will not start and async method calls will be silently dropped.
-</Aside>
-
 ---
 
 ## Running Both Stores Together
@@ -163,8 +151,8 @@ winter:
         address: 127.0.0.1
 ```
 
-Both stores are started as child sub-processes before any HTTP workers boot, so they are always ready when your beans initialise. You can verify connectivity by calling `$kvTemplate->ping()` or `$queue->ping()` inside an `#[OnApplicationReady]` listener.
+Both stores start as child processes before the HTTP workers, so they are ready when your beans initialize. You can verify connectivity by calling `$kvTemplate->ping()` or `$queue->ping()` inside an `#[OnApplicationReady]` listener.
 
 <Aside type="tip">
-  For production workloads that span multiple hosts — or that need persistence across restarts — replace the node-local stores with the `winter-data-redis` module. It provides Redis-backed implementations of both `KvTemplate` and the async task queue that work across any number of nodes.
+  For workloads that span multiple hosts, or that need data to survive restarts, use the `winter-data-redis` module instead: `PhpRedisTemplate` for shared state, `RedisCache` for caching, and `AsyncRedisQueueStore` for a persistent `#[Async]` queue.
 </Aside>

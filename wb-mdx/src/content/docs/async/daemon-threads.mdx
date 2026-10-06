@@ -7,15 +7,15 @@ description: "Create supervised background processes with #[DaemonThread] that s
 
 import { Aside, Card, CardGrid } from '@astrojs/starlight/components';
 
-A **Daemon Thread** in Winter Boot is a long-running background process that starts with your application and keeps running for its entire lifetime. Despite the name, it is not an OS thread or a Java-style thread — it is a dedicated child process supervised by the framework. Daemon threads are the right tool for work that must always be running: polling a queue, tailing a log stream, monitoring external systems, or processing rows from a database table in a continuous loop. The framework automatically restarts a daemon if it exits unexpectedly due to an out-of-memory error or an unhandled exception, so you never need to wire up your own process supervisor for these use cases.
+A **daemon thread** is a long-running background process that starts with your application and runs for as long as it does. Despite the name, it is not an OS thread — it is a child process supervised by the framework. Use one for work that must always be running: polling a queue, tailing a stream, monitoring an external system, or processing database rows in a loop. If a daemon exits unexpectedly (an unhandled exception or running out of memory), the framework restarts it, so you do not need your own process supervisor.
 
 <Aside type="note">
-  Daemon threads require the PHP extension from the [Installation](/winter-boot/installation) guide. Install and enable it before using `#[DaemonThread]`.
+  Daemon threads need the `swoole` extension and the `WinterWebSwooleApplication` runner. See [Installation](/winter-boot/installation).
 </Aside>
 
-## The `#[DaemonThread]` Annotation
+## The `#[DaemonThread]` Attribute
 
-Apply `#[DaemonThread]` to a class that extends `ServerWorkerProcess`. The annotation accepts two optional parameters:
+Apply `#[DaemonThread]` to a class that extends `ServerWorkerProcess`. The attribute accepts two optional parameters:
 
 - **`name`** `string` (default: `Class name`)
   A human-readable label for the daemon process, used in logs and process tables.
@@ -115,7 +115,7 @@ class SomeBackendProcessing extends ServerWorkerProcess
 
 ## Dependency Injection Inside Daemon Threads
 
-The `#[Autowired]` annotation works inside daemon thread classes just as it does in regular service beans. The framework performs property injection before calling `run()`, so any container-managed bean — database templates, configuration properties, other services — is available as soon as your loop starts.
+`#[Autowired]` works inside daemon thread classes just as it does in regular service beans. The framework performs property injection before calling `run()`, so any container-managed bean — database templates, configuration properties, other services — is available as soon as your loop starts.
 
 ```php title="OrderProcessingDaemon.php"
 use dev\winterframework\stereotype\cli\DaemonThread;
@@ -151,7 +151,7 @@ class OrderProcessingDaemon extends ServerWorkerProcess
             );
 
             foreach ($orders as $order) {
-                // Fulfil the order …
+                // Fulfill the order …
                 $this->notifier->sendConfirmation($order['customer_email'], $order['id']);
             }
 
@@ -163,7 +163,7 @@ class OrderProcessingDaemon extends ServerWorkerProcess
 
 ## Automatic Restart on Failure
 
-The Winter Boot framework monitors every registered daemon process. If a daemon exits — whether due to an uncaught exception, an out-of-memory error, or any other crash — the framework automatically restarts it. You do not need an external process manager (like Supervisor or systemd) to keep daemons alive.
+The framework monitors every daemon process. If a daemon exits — an uncaught exception, running out of memory, or any other crash — it is restarted automatically. You do not need an external process manager (like Supervisor or systemd) to keep daemons alive.
 
 <Aside type="caution">
   Daemon threads run for the **entire lifetime** of the application. They start when the application boots and are only stopped when the application itself shuts down. There is no mechanism to start or stop individual daemons dynamically at runtime.
@@ -185,7 +185,7 @@ The Winter Boot framework monitors every registered daemon process. If a daemon 
   
 </Card>
   <Card title="Supervision & Coordination" icon="link">
-    Act as a coordinator for other subsystems — reaping stale sessions, refreshing distributed caches, or enforcing rate limits across worker processes.
+    Coordinate other parts of the system — purging stale sessions, refreshing shared caches, or watching worker health.
   
 </Card>
 </CardGrid>

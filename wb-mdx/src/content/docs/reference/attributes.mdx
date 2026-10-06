@@ -1,11 +1,11 @@
 ---
-title: "Attribute Reference: Every Winter Boot Stereotype"
+title: "Attribute Reference: All Winter Boot Attributes"
 sidebar:
   label: "Attributes"
-description: "One-stop reference for every PHP 8 attribute Winter Boot ships: application, DI, web, data, async, caching, transactions, actuator, CLI, and testing."
+description: "Every PHP 8 attribute Winter Boot ships, grouped by area — bootstrap, DI, web, data, async, caching, AOP, telemetry, XML binding, actuator, and testing — with links to full docs."
 ---
 
-Winter Boot uses PHP 8 attributes for its entire programming model. This page indexes every attribute the framework exposes, grouped by the concern it belongs to, with a one-line meaning and a link to the concept page that documents its usage.
+Winter Boot's programming model is built on PHP 8 attributes. This page lists every attribute the framework provides, grouped by area, with a one-line description and a link to the page that documents it.
 
 ## Application bootstrap
 
@@ -14,8 +14,11 @@ Winter Boot uses PHP 8 attributes for its entire programming model. This page in
 | `#[WinterBootApplication]` | `dev\winterframework\stereotype` | Marks the entry-point class and configures scan paths, config directories, and enabled features. |
 | `#[Configuration]` | `dev\winterframework\stereotype` | Declares a bean-producing class whose `#[Bean]` methods contribute beans to the container. |
 | `#[PostConstruct]` | `dev\winterframework\stereotype` | Marks a bean method to run after all dependencies are injected. |
-| `#[OnApplicationReady]` | `dev\winterframework\stereotype` | Marks a bean method to run once the application context is fully ready. |
+| `#[OnApplicationReady]` | `dev\winterframework\stereotype` | On a bean class implementing `ApplicationReadyEvent`: its `onApplicationReady()` runs once the context is ready. |
 | `#[Module]` | `dev\winterframework\stereotype` | Registers a class as a Winter module (see [Module System](/winter-boot/core/module-system)). |
+| `#[EnableTransactionManagement]`, `#[EnableCaching]`, `#[EnableAsync]`, `#[EnableScheduling]` | see sections below | Feature switches placed on the `#[WinterBootApplication]` class. |
+
+See [Application Lifecycle](/winter-boot/core/application-lifecycle) and [Configuration](/winter-boot/configuration).
 
 ## Dependency injection
 
@@ -23,11 +26,11 @@ Winter Boot uses PHP 8 attributes for its entire programming model. This page in
 | --- | --- | --- |
 | `#[Service]` | `dev\winterframework\stereotype` | Registers a service-layer bean. |
 | `#[Component]` | `dev\winterframework\stereotype` | Registers a generic bean. |
-| `#[Autowired]` | `dev\winterframework\stereotype` | Injects a dependency into a property or constructor parameter. |
+| `#[Autowired]` | `dev\winterframework\stereotype` | Injects a bean into a property, by type or by name. |
 | `#[Bean]` | `dev\winterframework\stereotype` | Marks a `#[Configuration]` method as a bean factory. |
-| `#[Qualifier]` | `dev\winterframework\stereotype` | Disambiguates between beans of the same type by name. |
-| `#[Value]` | `dev\winterframework\stereotype` | Injects a property or config value into a field. |
-| `#[JsonProperty]` | `dev\winterframework\stereotype` | Maps a PHP property to a JSON key for (de)serialisation. |
+| `#[Qualifier]` | `dev\winterframework\stereotype` | On a constructor or `#[Bean]` method parameter: picks a bean by name. |
+| `#[Value]` | `dev\winterframework\stereotype` | Injects a configuration value (`'${key.path}'`) into a property. |
+| `#[JsonProperty]` | `dev\winterframework\stereotype` | Maps a PHP property to a JSON key when binding input (see [JSON & XML](/winter-boot/advanced/json-xml)). |
 
 Read [Dependency Injection](/winter-boot/core/dependency-injection) for full usage.
 
@@ -43,8 +46,8 @@ Read [Dependency Injection](/winter-boot/core/dependency-injection) for full usa
 | `#[PatchMapping]` | `dev\winterframework\stereotype\web` | Maps a method to `PATCH`. |
 | `#[DeleteMapping]` | `dev\winterframework\stereotype\web` | Maps a method to `DELETE`. |
 | `#[PathVariable]` | `dev\winterframework\stereotype\web` | Binds a URI path segment to a parameter. |
-| `#[RequestParam]` | `dev\winterframework\stereotype\web` | Binds a query-string parameter. |
-| `#[RequestBody]` | `dev\winterframework\stereotype\web` | Binds the deserialised request body. |
+| `#[RequestParam]` | `dev\winterframework\stereotype\web` | Binds a query, form, cookie, or header value to a parameter. |
+| `#[RequestBody]` | `dev\winterframework\stereotype\web` | Binds the parsed request body (JSON, XML, form, multipart) to a parameter. |
 
 See [REST Controllers](/winter-boot/web/rest-controllers) and [Request Mapping](/winter-boot/web/request-mapping).
 
@@ -68,9 +71,9 @@ See [Datasources](/winter-boot/data/database), [Transactions](/winter-boot/data/
 | `#[EnableAsync]` | `dev\winterframework\stereotype\task` | Enables `#[Async]` on the application. |
 | `#[Async]` | `dev\winterframework\task\async\stereotype` | Dispatches a method to a background worker. |
 | `#[EnableScheduling]` | `dev\winterframework\stereotype\task` | Enables `#[Scheduled]` on the application. |
-| `#[Scheduled]` | `dev\winterframework\task\scheduling\stereotype` | Runs a method on a cron or fixed-delay schedule. |
-| `#[DaemonThread]` | `dev\winterframework\stereotype\cli` | Runs a bean method as a long-lived daemon thread. |
-| `#[Lockable]` | `dev\winterframework\stereotype\concurrent` | Serialises method execution across processes. |
+| `#[Scheduled]` | `dev\winterframework\task\scheduling\stereotype` | Runs a method at a fixed rate or with a fixed delay (seconds). |
+| `#[DaemonThread]` | `dev\winterframework\stereotype\cli` | Runs a `ServerWorkerProcess` subclass as a supervised background process. |
+| `#[Lockable]` | `dev\winterframework\stereotype\concurrent` | Lets only one caller run a method at a time, per node or cluster-wide. |
 
 See [Async Tasks](/winter-boot/async/async-tasks), [Scheduled Tasks](/winter-boot/async/scheduling), [Daemon Threads](/winter-boot/async/daemon-threads), and [Locking](/winter-boot/ops/locking).
 
@@ -89,10 +92,31 @@ See [Caching](/winter-boot/ops/caching).
 
 | Attribute | Namespace | Purpose |
 | --- | --- | --- |
-| `#[AopStereoType]` | `dev\winterframework\stereotype\aop` | Marks a custom attribute as an AOP stereotype. |
-| `#[WinterAspect]` | `dev\winterframework\stereotype\aop` | Marks a class as an aspect implementation. |
+| `#[StereoTyped]` | `dev\winterframework\stereotype` | Marks your own attribute class as a Winter stereotype. Custom AOP attributes also implement the `AopStereoType` interface and return a `WinterAspect` interceptor. |
 
 See [AOP & Custom Stereotypes](/winter-boot/core/aop).
+
+## Telemetry
+
+| Attribute | Namespace | Purpose |
+| --- | --- | --- |
+| `#[Traceable]` | `dev\winterframework\telemetry\stereotype` | Wraps a method in an OpenTelemetry span. |
+| `#[Countable]` | `dev\winterframework\telemetry\metrics` | Increments an OpenTelemetry counter on every call. |
+
+See [Telemetry](/winter-boot/ops/telemetry).
+
+## XML binding (PAXB)
+
+| Attribute | Namespace | Purpose |
+| --- | --- | --- |
+| `#[XmlRootElement]` | `dev\winterframework\paxb\attr` | Maps a class to an XML root element. |
+| `#[XmlElement]` | `dev\winterframework\paxb\attr` | Maps a property to a child element. |
+| `#[XmlAttribute]` | `dev\winterframework\paxb\attr` | Maps a property to an XML attribute. |
+| `#[XmlValue]` | `dev\winterframework\paxb\attr` | Maps a property to the element's text content. |
+| `#[XmlAnyElement]`, `#[XmlAnyAttribute]` | `dev\winterframework\paxb\attr` | Capture unmatched elements or attributes. |
+| `#[XmlPropertyOrder]` | `dev\winterframework\paxb\attr` | Sets the order of child elements when writing XML. |
+
+See [JSON & XML](/winter-boot/advanced/json-xml).
 
 ## Actuator
 
@@ -107,15 +131,6 @@ See [Actuator](/winter-boot/ops/actuator).
 
 | Attribute | Namespace | Purpose |
 | --- | --- | --- |
-| `#[WinterBootTest]` | `dev\winterframework\stereotype\test` | Registers a test class as a bean during test runs. |
+| `#[WinterBootTest]` | `dev\winterframework\stereotype\test` | Registers a test class as a bean so services can be injected into it. |
 
 See [Testing](/winter-boot/building/testing).
-
-## Utility
-
-| Attribute | Namespace | Purpose |
-| --- | --- | --- |
-| `#[UriPath]` | `dev\winterframework\stereotype\util` | Marks a URI path template. |
-| `#[UriPathPart]` | `dev\winterframework\stereotype\util` | Marks a URI path segment. |
-| `#[NamedComponent]` | `dev\winterframework\stereotype\util` | Names a component for lookup. |
-| `#[ComponentName]` | `dev\winterframework\stereotype\util` | Reads a component's registered name. |

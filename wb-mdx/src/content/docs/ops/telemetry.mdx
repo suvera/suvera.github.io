@@ -7,32 +7,30 @@ description: "Integrate OpenTelemetry into Winter Boot to capture distributed tr
 
 import { Aside, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
 
-Winter Boot provides first-class integration with OpenTelemetry (OTel), covering all three observability pillars: **distributed traces**, **metrics**, and **structured logs**. The integration is delivered as an optional module (`OpenTelemetryModule`) so it has zero overhead when disabled. Once enabled, you can instrument web requests automatically via an interceptor, annotate individual methods for fine-grained tracing or counting, and inject telemetry beans anywhere in your application.
+Winter Boot integrates with OpenTelemetry (OTel) for **distributed traces**, **metrics**, and **logs**. The integration is an optional module (`OpenTelemetryModule`), so it costs nothing when disabled. Once enabled, you can trace every web request with an interceptor, trace or count individual methods with attributes, and inject telemetry beans anywhere.
 
-## Prerequisites
-
-Complete all four setup steps before enabling the module.
+## Setup
 
 <Steps>
 
 1. **Install the PHP OpenTelemetry extension**
 
-   Install and enable the extension via the [Installation](/winter-boot/installation) guide, then confirm it in your `php.ini`:
+   ```bash
+   pecl install opentelemetry
+   ```
 
    ```ini title="php.ini"
    extension=opentelemetry.so
    ```
 
    <Aside type="caution">
-   If the extension is not loaded, `OpenTelemetryModule` will throw a `MissingExtensionException` at application startup.
+   If the extension is not loaded, `OpenTelemetryModule` throws a `MissingExtensionException` at startup.
    </Aside>
 
-1. **Install the Composer packages**
+1. **Install the OpenTelemetry SDK and an exporter**
 
    ```bash
-   composer require open-telemetry/sdk \
-       open-telemetry/exporter-otlp \
-       open-telemetry/transport-grpc
+   composer require open-telemetry/sdk open-telemetry/exporter-otlp
    ```
 
 1. **Enable the module in application.yml**
@@ -41,53 +39,47 @@ Complete all four setup steps before enabling the module.
    modules:
        -   module: 'dev\winterframework\telemetry\OpenTelemetryModule'
            enabled: true
-           configFile: /path/to/opentelemetry.yaml
+           configFile: opentelemetry.yml   # required; looked up in the config directory
    ```
 
-1. **Create opentelemetry.yaml**
-
-   ```yaml title="opentelemetry.yaml"
+   ```yaml title="config/opentelemetry.yml"
    winter:
        telemetry:
-           serviceName: 'my-winter-application'
-           exporter:
-               type: 'otlp'
-               endpoint: 'http://localhost:4317'
-           sampler:
-               type: 'parent_based_always_on'
-               ratio: 1.0
+           serviceName: my-winter-service
    ```
 
-   Key configuration fields:
+   To switch telemetry off without removing the module (for example in tests), set `winter.telemetry.enabled: false`.
 
-   - **`serviceName`** `string` (required)
-     Identifies this service in your observability backend (Jaeger, Tempo, etc.).
+1. **Configure the exporter with OTel environment variables**
 
-   - **`exporter.type`** `string` (required)
-     Export protocol — `otlp` (gRPC/HTTP), `zipkin`, `jaeger`, or `console`.
+   Winter Boot uses the SDK's global providers, so the service name, exporter, endpoint, and sampler are set with the standard [OpenTelemetry environment variables](https://opentelemetry.io/docs/languages/sdk-configuration/general/):
 
-   - **`exporter.endpoint`** `string` (required)
-     The OTel collector or backend endpoint URL.
+   ```bash
+   export OTEL_PHP_AUTOLOAD_ENABLED=true
+   export OTEL_SERVICE_NAME=my-winter-service
+   export OTEL_TRACES_EXPORTER=otlp
+   export OTEL_METRICS_EXPORTER=otlp
+   export OTEL_LOGS_EXPORTER=otlp
+   export OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+   export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+   export OTEL_TRACES_SAMPLER=parentbased_always_on
+   ```
 
-   - **`sampler.type`** `string` (default: `parent_based_always_on`)
-     Sampling strategy — `always_on`, `always_off`, `parent_based_always_on`, or `traceidratio`.
-
-   - **`sampler.ratio`** `float` (default: `1.0`)
-     Sampling ratio (0.0–1.0) used when the `traceidratio` sampler is selected.
+   Without `OTEL_PHP_AUTOLOAD_ENABLED=true`, the SDK stays in no-op mode and nothing is exported.
 
 </Steps>
 
 ## Web Request Tracing
 
-Register `OpenTelemetryWebInterceptor` in your `WebMvcConfigurer` to automatically create a span for every incoming HTTP request. The interceptor extracts the W3C Trace Context from request headers (enabling distributed trace propagation from upstream services), records the HTTP method, URL, and response status code, and closes the span — including exception recording — after the response is sent.
+Register `OpenTelemetryWebInterceptor` in your `WebMvcConfigurer` (see [Interceptors](/winter-boot/web/interceptors)) to create a span for every incoming HTTP request. The interceptor extracts the W3C Trace Context from request headers (enabling distributed trace propagation from upstream services), records the HTTP method, URL, and response status code, and closes the span — including exception recording — after the response is sent.
 
 ```php title="MyWebConfigurer.php"
 use dev\winterframework\telemetry\web\OpenTelemetryWebInterceptor;
 use dev\winterframework\stereotype\Configuration;
-use dev\winterframework\web\config\WebMvcConfigurer;
-use dev\winterframework\web\config\InterceptorRegistry;
+use dev\winterframework\core\web\config\WebMvcConfigurer;
+use dev\winterframework\core\web\config\InterceptorRegistry;
 
-#[Configuration]
+#[Configuration(name: 'webMvcConfigurer')]
 class MyWebConfigurer implements WebMvcConfigurer
 {
     public function addInterceptors(InterceptorRegistry $registry): void

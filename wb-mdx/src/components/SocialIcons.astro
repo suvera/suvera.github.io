@@ -1,0 +1,37 @@
+---
+// Overrides Starlight's SocialIcons to show the link label (e.g. "GitHub")
+// next to each icon instead of an icon-only link.
+import config from 'virtual:starlight/user-config';
+import { Icon } from '@astrojs/starlight/components';
+
+const links = config.social || [];
+---
+
+{
+	links.length > 0 && (
+		<>
+			{links.map(({ label, href, icon }) => (
+				<a {href} rel="me" class="sl-flex social-link">
+					<Icon name={icon} />
+					<span>{label}</span>
+				</a>
+			))}
+		</>
+	)
+}
+
+<style>
+	.social-link {
+		align-items: center;
+		gap: 0.4em;
+		color: var(--sl-color-text-accent);
+		padding: 0.5em;
+		margin: -0.5em;
+		text-decoration: none;
+		font-size: var(--sl-text-sm);
+		font-weight: 600;
+	}
+	.social-link:hover {
+		color: var(--sl-color-white);
+	}
+</style>

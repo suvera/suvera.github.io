@@ -7,7 +7,7 @@ description: "Winter Data Memcache connects Winter Boot applications to Memcache
 
 import { Aside } from '@astrojs/starlight/components';
 
-Winter Data Memcache is a module that provides easy configuration and access to Memcached service from Winter Boot applications. It supports both the `memcached` and `memcache` PHP extensions through dedicated templates.
+Winter Data Memcache connects Winter Boot applications to Memcached servers. It supports both the `memcached` and `memcache` PHP extensions, each through its own template.
 
 <Aside type="note">
   Client-only module. For the built-in framework caching abstraction see [Caching](/winter-boot/ops/caching); to launch an embedded Memcached server see [Memdb](/winter-boot/modules/memdb).
@@ -15,40 +15,28 @@ Winter Data Memcache is a module that provides easy configuration and access to 
 
 ## Setup
 
-Install the modules package as described in the [Installation](/winter-boot/installation) guide, then append the following code to your `application.yml`:
+Install `suvera/winter-modules` as described in [Installation](/winter-boot/installation), then enable the module in `application.yml`:
 
-```yaml
+```yaml title="application.yml"
 modules:
     - module: 'dev\winterframework\data\memcache\MemcacheModule'
       enabled: true
       configFile: memcache-config.yml
 ```
 
-## Implementation
+## Requirements
 
-PHP has two very good libraries that can be used to work with Memcache:
+One of the two PHP Memcache client extensions is required — see [Installation](/winter-boot/installation):
 
-1. [Memcached](https://www.php.net/manual/en/book.memcached.php)
-2. [Memcache](https://www.php.net/manual/en/book.memcache.php)
+- [memcached](https://www.php.net/manual/en/book.memcached.php) — provides `MemcachedTemplate`
+- [memcache](https://www.php.net/manual/en/book.memcache.php) — provides `MemcacheTemplate`
 
-One of these extensions is required — see the [Installation](/winter-boot/installation) guide (Docker is recommended).
+## Configuration (memcache-config.yml)
 
-## Autowired Services
+Define connections under `memcache:` (for the **memcache** extension) and/or `memcached:` (for the **memcached** extension). Each entry becomes a bean named after its `name`.
 
-This module provides the following services automatically available to you.
-
-### 1. MemcachedTemplate
-
-Available when the **memcached** PHP extension is installed.
-
-### 2. MemcacheTemplate
-
-Available when the **memcache** PHP extension is installed.
-
-#### Configuration (memcache-config.yml)
-
-```yaml
-# When **memcache** php extension installed.
+```yaml title="config/memcache-config.yml"
+# Used with the memcache extension -> MemcacheTemplate
 memcache:
     -   name: bean01
         idleTimeout: 30
@@ -60,7 +48,7 @@ memcache:
                 port: 11211
                 weight: 0
 
-# When **memcached** php extension installed.
+# Used with the memcached extension -> MemcachedTemplate
 memcached:
     -   name: bean02
         timeout: 0
@@ -73,12 +61,18 @@ memcached:
                 weight: 0
 ```
 
-#### PHP Example
+## Usage
+
+Autowire each template by its bean name:
 
 ```php
+use dev\winterframework\data\memcache\mc\MemcacheTemplate;
+use dev\winterframework\data\memcache\mcd\MemcachedTemplate;
+use dev\winterframework\stereotype\Autowired;
+
 #[Autowired("bean02")]
-private MemcachedTemplate $memcache1;
+private MemcachedTemplate $memcached;
 
 #[Autowired("bean01")]
-private MemcacheTemplate $memcache2;
+private MemcacheTemplate $memcache;
 ```

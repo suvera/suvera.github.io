@@ -9,18 +9,15 @@ import { Aside, CardGrid, LinkCard, Steps } from '@astrojs/starlight/components'
 
 This guide walks you through building a minimal but complete Winter Boot microservice from scratch. By the end you will have a running HTTP server, a managed service bean, and a REST endpoint you can hit with `curl`.
 
-<Aside type="note">
-  A fully-featured reference implementation is available at [github.com/suvera/winter-example-service](https://github.com/suvera/winter-example-service). Clone it to see a real-world project layout with Docker, Phar builds, datasource configuration, and more.
-</Aside>
-
 <Steps>
 
 1. **Install Winter Boot**
 
-   Set up PHP, the required extension, and the framework packages by following the [Installation](/winter-boot/installation) guide — Docker is the recommended path. Then create your project directory:
+   Set up PHP, the required extensions, and Composer by following the [Installation](/winter-boot/installation) guide. Then create your project and add the framework:
 
    ```bash
    mkdir my-service && cd my-service
+   composer require suvera/winter-boot
    ```
 
 
@@ -40,9 +37,33 @@ This guide walks you through building a minimal but complete Winter Boot microse
    ```
 
 
+1. **Register Your Namespace with Composer**
+
+   Winter Boot loads your classes through Composer's autoloader, so map your namespace to `src/` in `composer.json`:
+
+   ```json title="composer.json"
+   {
+       "require": {
+           "suvera/winter-boot": "*"
+       },
+       "autoload": {
+           "psr-4": {
+               "com\\example\\myapp\\": "src/"
+           }
+       }
+   }
+   ```
+
+   Then regenerate the autoloader:
+
+   ```bash
+   composer dump-autoload
+   ```
+
+
 1. **Write application.yml**
 
-   Create `config/application.yml`. At minimum you need a server port. The `winter.application` block gives your service a human-readable name and version that surface in health and metrics endpoints.
+   Create `config/application.yml`. The `server` block sets where the HTTP server listens (use `address: 0.0.0.0` when running in Docker). The `winter.application` block gives your service a name, id, and version, shown in the startup banner and available from `ApplicationContext`.
 
    ```yaml title="config/application.yml"
    server:
@@ -59,7 +80,7 @@ This guide walks you through building a minimal but complete Winter Boot microse
 
 1. **Create a Service Bean**
 
-   Annotate a class with `#[Service]` to register it as a managed bean. Winter Boot will instantiate it, inject its dependencies, and make it available for `#[Autowired]` injection throughout the application context.
+   Annotate a class with `#[Service]` to register it as a managed bean. Winter Boot creates it, injects its dependencies, and makes it available for `#[Autowired]` injection anywhere in the application.
 
    ```php title="src/GreetingService.php"
    <?php
@@ -106,7 +127,7 @@ This guide walks you through building a minimal but complete Winter Boot microse
 
        #[GetMapping(path: '/api/v1/greet')]
        public function greet(
-           #[RequestParam] string $name = 'World'
+           #[RequestParam(required: false)] string $name = 'World'
        ): ResponseEntity {
            $message = $this->greetingService->greet($name);
 
@@ -121,7 +142,7 @@ This guide walks you through building a minimal but complete Winter Boot microse
    The entry-point class carries the `#[WinterBootApplication]` attribute, which tells the framework where to find your configuration and which namespaces to scan for beans.
 
    - `configDirectory` — directories containing `application.yml` and any other config files.
-   - `scanNamespaces` — pairs of `[NamespacePrefix, BaseDirectory]` the scanner should inspect.
+   - `scanNamespaces` — pairs of `[NamespacePrefix, BaseDirectory]` to scan for beans. The classes must be loadable by Composer's autoloader (see *Register Your Namespace with Composer* above).
 
    ```php title="Application.php"
    <?php
@@ -153,7 +174,7 @@ This guide walks you through building a minimal but complete Winter Boot microse
 
 1. **Run the Application**
 
-   Start the server by executing the entry point with PHP. It will fork worker processes and begin accepting HTTP connections on the port defined in `application.yml`.
+   Start the server by running the entry point with PHP. It starts worker processes and accepts HTTP connections on the port set in `application.yml`.
 
    ```bash
    php Application.php
@@ -198,10 +219,10 @@ This guide walks you through building a minimal but complete Winter Boot microse
 Now that your service is running, explore these topics to build on the foundation:
 
 <CardGrid>
-  <LinkCard title="Configuration" href="/winter-boot/configuration" description="Externalise settings with <code>application.yml</code>, <code>#[Value]</code>, and additional property sources." />
-  <LinkCard title="Dependency Injection" href="/winter-boot/core/dependency-injection" description="Learn about bean scopes, qualifiers, and <code>#[PostConstruct]</code> lifecycle hooks." />
+  <LinkCard title="Configuration" href="/winter-boot/configuration" description="Externalize settings with <code>application.yml</code>, <code>#[Value]</code>, and additional property sources." />
+  <LinkCard title="Dependency Injection" href="/winter-boot/core/dependency-injection" description="Learn about qualifiers, <code>#[Bean]</code> factories, and <code>#[PostConstruct]</code> lifecycle hooks." />
   <LinkCard title="REST Controllers" href="/winter-boot/web/rest-controllers" description="Handle path variables, request bodies, and return custom status codes." />
   <LinkCard title="Databases & Transactions" href="/winter-boot/data/database" description="Connect a datasource and manage transactions with <code>#[Transactional]</code>." />
   <LinkCard title="Async & Scheduling" href="/winter-boot/async/async-tasks" description="Run background jobs with <code>#[Async]</code> and <code>#[Scheduled]</code>." />
-  <LinkCard title="Module System" href="/winter-boot/core/module-system" description="Add Redis, Kafka, Doctrine ORM, and other integrations via community modules." />
+  <LinkCard title="Module System" href="/winter-boot/core/module-system" description="Add Redis, Kafka, Doctrine ORM, and other integrations through official modules." />
 </CardGrid>

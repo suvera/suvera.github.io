@@ -7,11 +7,11 @@ description: "Build REST APIs with Winter Boot using #[RestController], inject d
 
 import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
 
-Winter Boot's `#[RestController]` attribute transforms an ordinary PHP class into a fully managed HTTP handler. The framework discovers annotated classes automatically through namespace scanning, wires their dependencies, routes incoming requests to the correct method, and serialises the return value into an HTTP response — all without any XML, YAML, or routing-file configuration.
+The `#[RestController]` attribute turns an ordinary PHP class into an HTTP handler. Winter Boot finds annotated classes during namespace scanning, injects their dependencies, routes requests to the right method, and converts the return value into an HTTP response — no routing files needed.
 
 ## Registering a Controller
 
-Apply `#[RestController]` at the class level to register the class as a REST endpoint handler. The class must be concrete (non-abstract), and its namespace must fall within one of the component-scan packages declared in your application configuration.
+Apply `#[RestController]` at the class level to register the class as a REST endpoint handler. The class must be concrete (not abstract), and its namespace must be inside one of the `scanNamespaces` declared on your `#[WinterBootApplication]` class.
 
 ```php title="UserController.php"
 <?php
@@ -50,7 +50,7 @@ class UserController
     #[Autowired]
     protected UserService $userService;
 
-    // $this->userService is fully initialised before any request arrives
+    // $this->userService is injected before any request arrives
 }
 ```
 
@@ -113,22 +113,23 @@ $when     = $req->getRequestTime();     // unix timestamp
 ```
 
 <Aside type="note">
-  Always read these from `HttpRequest`, never from `$_SERVER`. Under Swoole many requests share one process, so `$_SERVER` can hold another request's values — the getters always return the current request's own data.
+  Always read these from `HttpRequest`, never from `$_SERVER`. A server worker handles many requests, so `$_SERVER` can hold another request's values — the getters always return the current request's own data.
 </Aside>
 
 ## Return Types
 
-Controller methods can return three types of value. Winter Boot inspects the return value and sets the appropriate `Content-Type` header automatically.
+Winter Boot looks at what a handler returns and sets the `Content-Type` header for you (unless you set one yourself).
 
-| Return type | Behaviour |
+| Return value | Behavior |
 |---|---|
-| `array` | Serialised to JSON; `Content-Type: application/json` |
+| `array` or `JsonSerializable` object | Encoded as JSON; `Content-Type: application/json` |
+| `string`, `int`, `float`, `bool` | Sent as-is; `Content-Type: text/plain` |
+| `SplFileInfo` | Streamed as a file download, with `Content-Type`, `Content-Length`, and `Content-Disposition` set |
 | `ResponseEntity` | Full control over status code, headers, and body |
-| `string` | Sent as-is; `Content-Type: text/plain` |
 
 ### ResponseEntity Builder API
 
-`ResponseEntity` (namespace `dev\winterframework\web\http\ResponseEntity`) provides static factory methods to start a response, followed by fluent builder calls to attach a body or headers.
+`ResponseEntity` (`dev\winterframework\web\http\ResponseEntity`) has static factory methods to start a response, and chainable methods to add a body, headers, or cookies.
 
 <details>
 <summary>ResponseEntity factory methods</summary>
@@ -212,7 +213,7 @@ Call it once per cookie — each call adds another `Set-Cookie` header. Read the
 
 ## Complete CRUD Example
 
-The controller below brings together every common pattern: `#[Autowired]` injection, all five HTTP method annotations, `#[PathVariable]`, `#[RequestBody]`, `#[RequestParam]`, and both `array` and `ResponseEntity` return types.
+The controller below brings the common patterns together: `#[Autowired]` injection, the `GET`/`POST`/`PUT`/`DELETE` mapping attributes, `#[PathVariable]`, `#[RequestBody]`, and `#[RequestParam]`.
 
 ```php title="UserController.php"
 <?php
@@ -339,41 +340,37 @@ class UserController
 
 ### Testing with curl
 
-
-
 ```bash title="List all users"
-curl http://localhost/users
+curl http://localhost:8080/users
 ```
 
 ```bash title="Get a single user"
-curl http://localhost/users/1
+curl http://localhost:8080/users/1
 ```
 
 ```bash title="Create a user"
-curl -X POST http://localhost/users \
+curl -X POST http://localhost:8080/users \
   -H "Content-Type: application/json" \
   -d '{"name":"John Doe","email":"john@example.com"}'
 ```
 
 ```bash title="Update a user"
-curl -X PUT http://localhost/users/1 \
+curl -X PUT http://localhost:8080/users/1 \
   -H "Content-Type: application/json" \
   -d '{"name":"Jane Doe","email":"jane@example.com"}'
 ```
 
 ```bash title="Delete a user"
-curl -X DELETE http://localhost/users/1
+curl -X DELETE http://localhost:8080/users/1
 ```
 
 ```bash title="Search by email"
-curl "http://localhost/users/search?email=john@example.com"
+curl "http://localhost:8080/users/search?email=john@example.com"
 ```
-
-
 
 ## Error Handling
 
-When an unhandled error or exception occurs, Winter Boot delegates to an `ErrorController` implementation. The `ErrorController` interface lives in `dev\winterframework\core\web\error\ErrorController` and exposes a single method:
+When a request fails (an unhandled exception, an unknown route, a bad request body), Winter Boot hands it to the `errorController` bean. The built-in `DefaultErrorController` returns a JSON error; to customize the response, implement the `dev\winterframework\core\web\error\ErrorController` interface:
 
 ```php
 interface ErrorController
@@ -387,10 +384,10 @@ interface ErrorController
 }
 ```
 
-Register your implementation under the bean name `errorController` using either of the two approaches below.
+Register your implementation under the bean name `errorController`, either as a component or from a `#[Bean]` method.
 
 <Tabs>
-  <TabItem label="@Component">
+  <TabItem label="#[Component]">
 
     ```php title="MyErrorController.php"
     <?php
@@ -420,7 +417,7 @@ Register your implementation under the bean name `errorController` using either 
     ```
 
   </TabItem>
-  <TabItem label="@Bean">
+  <TabItem label="#[Bean]">
 
     ```php title="AppConfig.php"
     <?php
@@ -444,5 +441,5 @@ Register your implementation under the bean name `errorController` using either 
 </Tabs>
 
 <Aside type="caution">
-  Only one `errorController` bean may exist in the application context. If you register two, Winter Boot throws a duplicate-bean exception at startup.
+  Register only one `errorController` bean. Two beans with the same name cause a duplicate-bean exception at startup.
 </Aside>

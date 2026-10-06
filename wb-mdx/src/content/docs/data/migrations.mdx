@@ -7,7 +7,7 @@ description: "Run versioned SQL scripts against any datasource, track applied mi
 
 import { Aside, Steps } from '@astrojs/starlight/components';
 
-Winter Boot includes a standalone SQL migration tool that executes plain `.sql` files against your configured datasources and tracks each applied migration in a `winter_migrations` table. Version state is determined by the relative file path — if a path has already been recorded in the tracking table, the file is skipped on subsequent runs. This gives you repeatable, idempotent deploys without requiring any migration-specific DSL.
+Winter Boot includes a migration runner that executes plain `.sql` files against your configured datasources and records each applied file in a `winter_migrations` table. A file is identified by its relative path: once recorded, it is skipped on later runs. Deploys are repeatable and idempotent, with no migration DSL to learn.
 
 <Aside type="tip">
   The same runner also applies JSON-based OpenSearch index templates, ISM policies, and index schemas. See [OpenSearch Migrations](/winter-boot/data/opensearch-migrations).
@@ -62,18 +62,40 @@ Follow these steps to apply your first migration:
    ```
 
 
+1. **Create a migration entry point**
+
+   Add a small runner script to your project. It uses `WinterMigrationApplication`, which loads your config, runs the migrations, and exits:
+
+   ```php title="bin/migrate.php"
+   <?php
+   declare(strict_types=1);
+
+   use dev\winterframework\core\app\WinterMigrationApplication;
+   use dev\winterframework\stereotype\WinterBootApplication;
+
+   require_once dirname(__DIR__) . '/vendor/autoload.php';
+
+   #[WinterBootApplication(
+       configDirectory: [__DIR__ . '/../config'],
+       scanNamespaces: [['com\\example\\myapp', __DIR__ . '/../src']]
+   )]
+   class MigrationApplication {
+       public static function main(): void {
+           (new WinterMigrationApplication())->run(self::class);
+       }
+   }
+
+   MigrationApplication::main();
+   ```
+
+   Scanning your own namespace matters for multi-tenant setups, where the runner needs your `TenantDataSourceProvider` class.
+
+
 1. **Run the migrations**
 
-   Execute the migration tool from the CLI or using the pre-built PHAR.
-
-
-     ```bash title="PHP CLI"
-     php bin/migrate.php -c /path/to/config --sqlPath /path/to/migrations
-     ```
-
-     ```bash title="PHAR"
-     ./winter-migrations-app.phar -c /path/to/config --sqlPath /path/to/migrations
-     ```
+   ```bash
+   php bin/migrate.php --configDir /path/to/config --sqlPath /path/to/migrations
+   ```
 
 
 
@@ -162,7 +184,7 @@ Each tool is run so that the **first SQL error stops the file and fails the migr
 
 ## Directory Structure
 
-Organise migration files under a root directory with one sub-folder per datasource name. Files are executed in **alphabetical order** — use numeric or date-based prefixes to enforce a deterministic sequence.
+Organize migration files under a root directory with one sub-folder per datasource name. Files are executed in **alphabetical order** — use numeric or date-based prefixes to enforce a deterministic sequence.
 
 ```text
 /migrations/
@@ -179,7 +201,7 @@ Organise migration files under a root directory with one sub-folder per datasour
 ```
 
 <Aside type="note">
-  Each top-level sub-folder must exactly match the datasource `name` in `application.yml`. The match is **case-sensitive** on Linux. SQL files must use the `.sql` extension. Sub-folders for release-based organisation are supported and scanned recursively.
+  Each top-level sub-folder must exactly match the datasource `name` in `application.yml`. The match is **case-sensitive** on Linux. SQL files must use the `.sql` extension. Sub-folders for release-based organization are supported and scanned recursively.
 </Aside>
 
 ---
@@ -227,24 +249,20 @@ CREATE INDEX idx_orders_status_created
 
 ```bash
 php bin/migrate.php \
-  -c /path/to/config \
+  --configDir /path/to/config \
   --sqlPath /path/to/migrations
 ```
 
 | Flag | Description |
 |---|---|
-| `-c` | Path to the directory containing `application.yml` |
-| `--sqlPath` | Root path of the migrations directory tree |
+| `--configDir`, `-c` | Directory containing `application.yml` (required) |
+| `--sqlPath` | Root of the migrations directory tree (required) |
+| `--migrationType`, `-m` | `sql` (default) or `opensearch` — see [OpenSearch Migrations](/winter-boot/data/opensearch-migrations) |
+| `--version`, `-v` | Print the application version and exit |
 
-### Building the PHAR
+### Packaging as a PHAR
 
-Build a self-contained PHAR for use in Docker images or CI pipelines:
-
-```bash
-cd build/sqlmigrator
-./build.sh
-# Output: build/sqlmigrator/target/winter-migrations-app.phar
-```
+To ship the runner in a Docker image or CI pipeline, package `bin/migrate.php` as a PHAR with Box, exactly as described in [Build & Deploy](/winter-boot/advanced/build-deploy) (set `"main": "bin/migrate.php"` and a different `output`, e.g. `target/migrations.phar`).
 
 ---
 
@@ -261,9 +279,9 @@ spec:
   initContainers:
     - name: sql-migrations
       image: my-app:latest
-      command: ["/winter-migrations-app.phar"]
+      command: ["php", "/app/target/migrations.phar"]
       args:
-        - "-c"
+        - "--configDir"
         - "$(CONFIG_DIR)"
         - "--sqlPath"
         - "$(SQL_MIGRATION_PATH)"
@@ -275,14 +293,14 @@ spec:
 ```
 
 <Aside type="tip">
-  Baking `winter-migrations-app.phar` directly into your application image means migrations and the application always share the same versioned artifact, eliminating drift between schema and code.
+  Baking the migrations PHAR into your application image means migrations and the application always ship as the same versioned artifact, so schema and code cannot drift apart.
 </Aside>
 
 ---
 
 ## Migration Execution Flow
 
-Understanding the exact sequence helps you predict behaviour and debug failures:
+Knowing the exact sequence helps you predict behavior and debug failures:
 
 <Steps>
 

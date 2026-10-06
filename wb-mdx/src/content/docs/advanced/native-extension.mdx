@@ -1,77 +1,29 @@
 ---
-title: "Native Extension"
+title: "The winter_boot Native Extension"
 sidebar:
   label: "Native Extension"
-description: "Use the winter_boot native extension's deferred() cleanup callbacks to guarantee resource release on every return path."
+description: "What the required winter_boot PHP extension provides: native AOP without generated proxies."
 ---
 
 import { Aside } from '@astrojs/starlight/components';
 
-Winter Boot ships a small native extension, `winter_boot`, alongside the framework. It provides runtime capabilities that userland PHP cannot guarantee. Its first capability is `deferred()`: register a cleanup callback that runs when the current function exits — on normal return, early return, or exception — without wrapping every exit path in boilerplate. Its second capability is native AOP: aspect attributes and `#[Async]` methods work without any generated proxy classes. The extension is pre-installed and enabled in the Winter Boot runtime image.
+Winter Boot ships a small native extension, `winter_boot`, alongside the framework. It provides native AOP: aspect attributes and `#[Async]` methods work without any generated proxy classes. The extension is pre-installed and enabled in the Winter Boot runtime image.
 
 <Aside type="note">
   Required since Winter Boot 2.1.0 — the application stops at boot when the extension is missing.
 </Aside>
 
-## Registering cleanup with `deferred()`
-
-```php title="src/Service/TransferService.php"
-use dev\winterframework\stereotype\Autowired;
-use dev\winterframework\stereotype\Service;
-
-#[Service]
-class TransferService
-{
-    public function transfer(string $from, string $to, float $amount): void
-    {
-        $lock = $this->locks->acquire($from);
-        deferred(function () use ($lock) {
-            $lock->release();
-        });
-
-        $log = fopen('/tmp/xfer.log', 'a');
-        deferred(function () use ($log) {
-            fclose($log);
-        });
-
-        // ... any early returns or throws below still release both ...
-    }
-}
-```
-
-Each call to `deferred()` registers one callback against the currently executing function. When that function exits, its callbacks run in **LIFO order** (last registered runs first), each **exactly once**. The function's return value is never affected.
-
-Deferred callbacks run as ordinary closures: they see state through the `use` list (by value or by reference) and object references, exactly like any other closure. They do not share the owning function's locals.
-
-## Guarantees
-
-- **Every return path.** Early returns included — register once at the top instead of repeating cleanup before each `return`.
-- **Exceptions.** If the function throws, cleanups still run during unwinding, and the original exception propagates unchanged.
-- **Failing cleanups never skip the rest.** If a cleanup itself throws, the remaining callbacks still run. The failure is chained onto the exception's `previous` link (like `finally` semantics), so nothing is silently dropped: with no original exception you catch the last cleanup failure with earlier failures attached; with an original exception you catch the cleanup failure with the original attached.
-- **Nesting and recursion are isolated.** An inner function's cleanups run when the inner function exits — never in the caller.
-- **Works in fibers.** `Fiber::suspend()` does not trigger callbacks; they run once when the fiber function exits, including on exceptions.
-
-<Aside type="note">
-  `defered()` (one `r`) is accepted as an alias with identical behavior, for the common misspelling.
-</Aside>
-
-## Where it cannot be used
-
-- **Outside a function** (global/file scope) — throws `Error`. Call it inside a function.
-- **Inside generator functions** — throws `Error`. A `yield` suspends scope exit, so there is no single exit moment to attach cleanup to; use `try`/`finally` inside generators instead. (Calling a normal function *from* a generator body is fine — that function has a real exit.)
-- **After fatal errors** (`E_ERROR`, out of memory) or when a fiber is destroyed while suspended — pending callbacks are discarded, never executed. Cleanup that must survive those paths needs an out-of-process mechanism.
-
 ## Native AOP without proxies
 
-Bean methods carrying aspect attributes (caching, transactions, custom aspects) and `#[Async]` methods are intercepted directly in the runtime — no subclass is generated, so `final` classes and `final` methods can carry advice too. Nothing changes in application code: the same attributes, the same aspects, the same `begin`/`commit`/`failed` sequence. `#[Async]` calls still run in the background pool and return `null` to the caller; the queue records the real method name.
+Bean methods carrying aspect attributes (caching, transactions, custom aspects) and `#[Async]` methods are intercepted directly in the runtime — no subclass is generated, so `final` classes can carry advice too. (`final` *methods* are still rejected by attribute validation.) Nothing changes in application code: the same attributes, the same aspects, the same `begin`/`commit`/`failed` sequence. `#[Async]` calls still run in the background pool and return `null` to the caller; the queue records the real method name.
 
-Behavioral notes (differences from the former generated proxies, all fail-closed):
+Behavior to be aware of:
 
 - A value supplied through `stopExecution()` must match the method's declared return type exactly — a mismatch throws `TypeError` instead of being coerced.
-- Aspect attributes on `static` methods are not supported, as before (previously a fatal error, now a `TypeError`).
-- An explicit `parent::` call to a method that itself carries advice runs that advice; previously the call bypassed the proxy override. Advice still never fires for methods without attributes.
-- Request-mapping endpoints on controllers behave exactly as before; the dispatcher drives their advice directly.
+- Aspect attributes on `static` methods are not supported (`TypeError`).
+- An explicit `parent::` call to a method that itself carries advice runs that advice. Advice never fires for methods without attributes.
+- On controllers, the dispatcher runs the advice of request-mapping endpoints directly (see [AOP on controllers](/winter-boot/core/aop#aop-on-controllers)).
 
-## More capabilities coming
+## Building and installing
 
-`winter_boot` is the home for future native runtime capabilities; each will be documented here with the same usage-first focus.
+The extension source ships in the framework package (`vendor/suvera/winter-boot/php-ext/`). See [Installation](/winter-boot/installation) for build steps, and [PHP Extensions](/winter-boot/ops/extension-limits#winter_boot-required-since-210-native-capabilities) for known limits (JIT, Xdebug).

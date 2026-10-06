@@ -454,7 +454,7 @@ Why this shape:
   `beanByClass(AbacService::class)` resolves — the same convention as the
   [RBAC guide](/winter-boot/howto/rbac). `PolicyService` and
   `DbResourceResolver` are concrete classes because the seams (policy rows,
-  domain tables) are data, not behaviour.
+  domain tables) are data, not behavior.
 </Aside>
 
 ## 3. Enforcement with a #[RequireAbac] attribute
@@ -754,7 +754,7 @@ after the RBAC ones.
 - **Test the policy matrix.** Minimum: no matching policy → `403`; guardrail
   amount → `403` even for seniors; senior within guardrail → `200`; standard
   user in hours → `200`, out of hours → `403`; wrong department → `403`;
-  unknown resource id → `403`; disable a policy → behaviour flips on the next
+  unknown resource id → `403`; disable a policy → behavior flips on the next
   request (proves eviction).
 - **Watch the clock.** `hour` comes from the server clock — run NTP, and if
   your users span time zones, store policy hours in UTC and convert explicitly
