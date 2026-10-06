@@ -20,9 +20,24 @@ server:
     port: 8080
     address: 0.0.0.0
     context-path: /
+    swoole:                       # passed to Swoole\Server::set()
+        worker_num: 2
+        hook_flags: SWOOLE_HOOK_ALL
 ```
 
 Documented in [Configuration](/winter-boot/configuration).
+
+Every key under `server.swoole` is passed to Swoole's server settings as is, except `hook_flags`, which also accepts names:
+
+| `server.swoole.hook_flags` value | Meaning |
+|---|---|
+| absent (default) | Swoole's default `0`: no runtime hooks. PDO, sockets, `sleep()` and cURL block the whole worker, so each worker serves one request at a time. |
+| `SWOOLE_HOOK_ALL` (or `all`) | Every blocking call yields to other coroutines, so a worker serves requests concurrently. Needed for the coroutine connection pool to matter. |
+| `[SWOOLE_HOOK_PDO_PGSQL, SWOOLE_HOOK_TCP]` | Only the listed hooks (OR'ed). |
+| `[SWOOLE_HOOK_ALL, -SWOOLE_HOOK_CURL]` | All hooks except cURL (a `-NAME` entry removes that flag). |
+| `65536` | A raw number, as before. |
+
+An unknown name stops the application at startup.
 
 ### `winter`
 
@@ -44,6 +59,12 @@ winter:
         cacheTime: 10
     route:
         cacheTime: 10
+    task:
+        async:
+            maxConcurrency: 0
+    security:
+        unserialize:
+            allowedClasses: [App\Dto\User, App\Dto\Cart]
 ```
 
 - `application.name`, `application.id`, `application.version`: identity used in logs and actuator.
@@ -52,6 +73,8 @@ winter:
 - `rest.connect-timeout`: RestTemplate connect timeout in seconds. Default `5.0`. Documented in [RestTemplate](/winter-boot/web/rest-template).
 - `namespaces.cacheTime`: how long reflection scan results are cached.
 - `route.cacheTime`: how long route mappings are cached.
+- `task.async.maxConcurrency`: most async jobs one async worker runs at the same time; `0` (default) = unlimited. Documented in [Async Tasks](/winter-boot/async/async-tasks).
+- `security.unserialize.allowedClasses`: classes that may be rebuilt when session, shared-cache and shared-queue data is read back. Absent (default) = any class; a list (or comma-separated string) = only those; `[]` = none (objects become `__PHP_Incomplete_Class`). Documented in [Request Sessions](/winter-boot/core/request-sessions).
 
 ### `datasource`
 

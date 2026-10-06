@@ -152,6 +152,8 @@ When `useCli: true` is set, Winter Boot selects the appropriate CLI tool based o
 | `oci` | `sqlplus` |
 | `sqlsrv` / `dblib` | `sqlcmd` |
 
+Each tool is run so that the **first SQL error stops the file and fails the migration**: `psql -v ON_ERROR_STOP=1`, `sqlcmd -b`, and `WHENEVER SQLERROR EXIT` for `sqlplus`. Without these, the tools exit successfully after errors and a broken file would be recorded as applied.
+
 <Aside type="caution">
   When using `useCli: true`, make sure the corresponding CLI binary (e.g. `psql`, `mysql`) is installed on the machine running migrations and is available on the system `PATH`.
 </Aside>

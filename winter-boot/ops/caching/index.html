@@ -87,8 +87,9 @@
 One or more cache container names where the result will be stored. Accepts a single string or an array of strings.</p>
 </li>
 <li>
-<p><strong><code dir="auto">key</code></strong> <code dir="auto">string</code> (default: <code dir="auto">Method name + arguments</code>)
-The key under which the value is cached. Supports <code dir="auto">#{param}</code> expression interpolation.</p>
+<p><strong><code dir="auto">key</code></strong> <code dir="auto">string</code> (default: <code dir="auto">Class::method + arguments</code>)
+The key under which the value is cached. Supports <code dir="auto">#{param}</code> expression interpolation. The default key includes the class name and every argument value; arrays and objects are hashed, and keys over 255 characters keep a prefix plus a hash, so different arguments never share an entry. With a custom <code dir="auto">key</code>, keep placeholders unambiguous (<code dir="auto">user-#{a}-#{b}</code> can collide when values contain <code dir="auto">-</code>).</p>
+<p>Cache keys and values are never logged.</p>
 </li>
 <li>
 <p><strong><code dir="auto">keyGenerator</code></strong> <code dir="auto">string</code> (default: <code dir="auto">Framework managed</code>)

@@ -94,12 +94,12 @@
 <tr>
 <td><code dir="auto">configprops</code></td>
 <td><code dir="auto">acme/configprops</code></td>
-<td>Displays all <code dir="auto">#[ConfigurationProperties]</code> bound values.</td>
+<td>Displays all <code dir="auto">application.yml</code> properties (secret-looking values masked).</td>
 </tr>
 <tr>
 <td><code dir="auto">env</code></td>
 <td><code dir="auto">acme/env</code></td>
-<td>Exposes environment variables and application properties.</td>
+<td>Exposes environment variables (secret-looking values masked).</td>
 </tr>
 <tr>
 <td><code dir="auto">health</code></td>
@@ -122,12 +122,18 @@
 <td>Shows all tasks registered with the <code dir="auto">#[Scheduled]</code> attribute.</td>
 </tr>
 <tr>
+<td><code dir="auto">prometheus</code></td>
+<td><code dir="auto">acme/prometheus</code></td>
+<td>Prometheus metrics, including <code dir="auto">http_request_duration</code> labelled by route template (e.g. <code dir="auto">/users/{id}</code>) and method.</td>
+</tr>
+<tr>
 <td><code dir="auto">heapdump</code></td>
 <td><code dir="auto">acme/heapdump</code></td>
-<td>Triggers a PHP memory/heap snapshot for debugging.</td>
+<td>Lists the server’s processes (master, workers, task processes) with PID and memory details.</td>
 </tr>
 </tbody>
 </table>
+<aside aria-label="Caution" class="starlight-aside starlight-aside--caution"><p class="starlight-aside__title" aria-hidden="true"><svg aria-hidden="true" class="starlight-aside__icon astro-hkc32dio" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="M12 16a1 1 0 1 0 0 2 1 1 0 0 0 0-2Zm10.67 1.47-8.05-14a3 3 0 0 0-5.24 0l-8 14A3 3 0 0 0 3.94 22h16.12a3 3 0 0 0 2.61-4.53Zm-1.73 2a1 1 0 0 1-.88.51H3.94a1 1 0 0 1-.88-.51 1 1 0 0 1 0-1l8-14a1 1 0 0 1 1.78 0l8.05 14a1 1 0 0 1 .05 1.02v-.02ZM12 8a1 1 0 0 0-1 1v4a1 1 0 0 0 2 0V9a1 1 0 0 0-1-1Z"/></svg>Caution</p><div class="starlight-aside__content"><p>Actuator endpoints are served on the application port <strong>without authentication</strong>. <code dir="auto">configprops</code> and <code dir="auto">env</code> replace values whose key contains <code dir="auto">password</code>, <code dir="auto">secret</code>, <code dir="auto">token</code>, <code dir="auto">credential</code>, <code dir="auto">api key</code>, <code dir="auto">private key</code>, <code dir="auto">access key</code>, <code dir="auto">auth</code>, <code dir="auto">dsn</code>, <code dir="auto">cookie</code> or <code dir="auto">session</code> with <code dir="auto">******</code>, but other values (hostnames, usernames, internal URLs) are still shown. Keep <code dir="auto">beans</code>, <code dir="auto">configprops</code>, <code dir="auto">env</code> and <code dir="auto">mappings</code> disabled in production, or protect the paths with a <code dir="auto">HandlerInterceptor</code>.</p></div></aside>
 <div class="sl-heading-wrapper level-h3"><h3 id="querying-an-endpoint">Querying an Endpoint</h3><a class="sl-anchor-link" href="#querying-an-endpoint"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “Querying an Endpoint”</span></a></div>
 <p>Once an endpoint is enabled and the application is running, query it with a standard HTTP request:</p>
 <div class="expressive-code"><figure class="frame is-terminal not-content"><figcaption class="header"><span class="title"></span><span class="sr-only">Terminal window</span></figcaption><pre data-language="bash"><code><div class="ec-line"><div class="code"><span style="--0:#82AAFF;--1:#3B61B0">curl</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#ECC48D;--1:#3B61B0">https://your.service.domain/acme/health</span></div></div><div class="ec-line"><div class="code">

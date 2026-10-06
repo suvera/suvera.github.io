@@ -53,13 +53,18 @@ Setting `management.endpoints.enabled: false` (or omitting it entirely) disables
 | Endpoint | Default path | Description |
 |---|---|---|
 | `beans` | `acme/beans` | Lists all beans registered in the Winter Boot application context. |
-| `configprops` | `acme/configprops` | Displays all `#[ConfigurationProperties]` bound values. |
-| `env` | `acme/env` | Exposes environment variables and application properties. |
+| `configprops` | `acme/configprops` | Displays all `application.yml` properties (secret-looking values masked). |
+| `env` | `acme/env` | Exposes environment variables (secret-looking values masked). |
 | `health` | `acme/health` | Aggregated health status from all registered `HealthIndicator` beans. |
 | `info` | `acme/info` | Arbitrary application information contributed by `InfoContributor` beans. |
 | `mappings` | `acme/mappings` | Lists all registered HTTP route mappings. |
 | `scheduledtasks` | `acme/scheduledtasks` | Shows all tasks registered with the `#[Scheduled]` attribute. |
-| `heapdump` | `acme/heapdump` | Triggers a PHP memory/heap snapshot for debugging. |
+| `prometheus` | `acme/prometheus` | Prometheus metrics, including `http_request_duration` labelled by route template (e.g. `/users/{id}`) and method. |
+| `heapdump` | `acme/heapdump` | Lists the server's processes (master, workers, task processes) with PID and memory details. |
+
+<Aside type="caution">
+  Actuator endpoints are served on the application port **without authentication**. `configprops` and `env` replace values whose key contains `password`, `secret`, `token`, `credential`, `api key`, `private key`, `access key`, `auth`, `dsn`, `cookie` or `session` with `******`, but other values (hostnames, usernames, internal URLs) are still shown. Keep `beans`, `configprops`, `env` and `mappings` disabled in production, or protect the paths with a `HandlerInterceptor`.
+</Aside>
 
 ### Querying an Endpoint
 

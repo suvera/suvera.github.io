@@ -41,6 +41,8 @@ class AuthController
     public function login(HttpRequest $req): ResponseEntity
     {
         $session = $this->sessions->open($req, $this->store, $this->options);
+        // New id at login: an id someone knew before login becomes useless.
+        $session->regenerateId();
         $session->setUsername('alice');
         $session->set('role', 'admin');
 
@@ -53,9 +55,11 @@ class AuthController
 
 `commit()` saves the data and puts the session id into a cookie on the response. Always call it before returning — anything you `set()` without `commit()` is thrown away when the request ends.
 
+Call `regenerateId()` whenever someone logs in or gains more rights. It keeps the data, gives the session a new id, and `commit()` deletes the row stored under the old id.
+
 ## Reading the session on the next request
 
-Open the session the same way. If the browser sent back a valid session cookie, you get the stored data; otherwise you get a fresh, empty session:
+Open the session the same way. If the browser sent back a valid session cookie, you get the stored data; otherwise you get a fresh, empty session with a **new** id. An id the server does not know (made up, expired or deleted) is never reused, so nobody can plant a session id in a victim's browser and wait for them to log in:
 
 ```php
 $session = $this->sessions->open($req, $this->store, $this->options);
@@ -87,6 +91,7 @@ $adminSessions = new SessionOptions(
     domain: '',            // empty = current domain only
     secure: true,          // send the cookie over HTTPS only
     httponly: true,        // hide the cookie from JavaScript
+    samesite: 'Strict',    // 'Lax' (default), 'Strict', 'None' (needs secure) or '' to omit
 );
 
 $userSessions = new SessionOptions(
@@ -98,6 +103,8 @@ $userSessions = new SessionOptions(
     httponly: true,
 );
 ```
+
+`secure` defaults to `false` so plain-HTTP development works; set it to `true` in production. `samesite` defaults to `Lax`.
 
 Pass the right one to `open()` and `commit()`. Both flows can share the same store — the cookie name keeps their sessions apart. If you only ever need one kind of login, one `SessionOptions` is enough.
 
@@ -111,6 +118,19 @@ $session->setSessionType(1);
 ```
 
 They are loaded back automatically on every later request, so code that only updates other data never erases them. The username is written once at login: later saves that carry no name keep the stored one, so it cannot be wiped by accident — only a new name replaces it. The session type is a number your app defines (for example, `1` for admins) — `0` simply means "no type set".
+
+## Restricting stored classes
+
+Session data is saved with `serialize()`. If an attacker can write to your session store (database, Redis), they could plant objects that run code when the session is read back. List the classes your sessions may contain and everything else is refused:
+
+```yaml title="application.yml"
+winter:
+    security:
+        unserialize:
+            allowedClasses: [App\Dto\Cart]   # [] = scalars and arrays only
+```
+
+The same list applies to the shared KV cache and shared queue. Without the key, any class is allowed (the 2.x behaviour).
 
 ## Where sessions are kept
 
@@ -187,10 +207,11 @@ class SessionConfig
 | What you call | What it does |
 |---|---|
 | `getId()` | The session id from the browser's cookie, or a fresh one |
-| `isNew()` | True when there is no saved data for this id (not logged in) |
+| `isNew()` | True when there was no saved session for the browser's id (not logged in); the session then has a new id |
 | `get($key, $default = null)` | Read one stored value |
 | `set($key, $value)` | Store one value (kept only after `commit()`) |
 | `remove($key)` | Delete one stored value |
-| `destroy()` | Log out: delete everything on the next `commit()` |
+| `destroy()` | Log out: delete everything on the next `commit()`, including rows under ids replaced by `regenerateId()` in the same request |
+| `regenerateId()` | Give the session a new id (call at login); the old row is deleted on `commit()` |
 | `getUsername()` / `setUsername($u)` | Who the session belongs to |
 | `getSessionType()` / `setSessionType($t)` | Your own session category number |

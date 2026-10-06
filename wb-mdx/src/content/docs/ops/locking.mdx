@@ -25,7 +25,7 @@ Winter Boot's locking abstraction gives you declarative, AOP-based concurrency c
 
 ## Local Node Locking
 
-The framework provides local node locking out of the box — no extra configuration or bean is needed. Only one process on the same node can execute the annotated method at a time. The `#{id}` syntax binds the method parameter `$id` into the lock name, so two concurrent calls with **different** order IDs proceed in parallel while two calls for the **same** ID are serialized.
+The framework provides local node locking out of the box — no extra configuration or bean is needed. Only one caller on the same node can execute the annotated method at a time — another process, or another coroutine in the same Swoole worker. It uses `flock` on a file in the system temp directory, which the OS releases automatically if the holder dies. The `#{id}` syntax binds the method parameter `$id` into the lock name, so two concurrent calls with **different** order IDs proceed in parallel while two calls for the **same** ID are serialized.
 
 <Tabs>
   <TabItem label="Basic Lock">

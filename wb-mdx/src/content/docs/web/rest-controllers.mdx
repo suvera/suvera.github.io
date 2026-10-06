@@ -194,6 +194,7 @@ return ResponseEntity::status(HttpStatus::$CONFLICT)->withJson(['message' => 'Al
 | `domain` | Which domain receives it (empty = current domain) | `''` |
 | `secure` | Send over HTTPS only | `false` |
 | `httponly` | Hide from JavaScript | `false` |
+| `samesite` | `Lax`, `Strict`, `None` (needs `secure`) or `''` to leave it out | `''` |
 
 ```php
 // Remember a theme for 30 days, visible across the whole site

@@ -98,6 +98,7 @@ winter:
       poolSize: 4          # Number of background worker processes
       queueCapacity: 100   # Maximum concurrent async requests in the queue
       argsSize: 2048       # Maximum serialised size (bytes) of method arguments
+      maxConcurrency: 0    # Max jobs running at once per worker, 0 = unlimited
 ```
 
 - **`poolSize`** `int`
@@ -106,6 +107,10 @@ winter:
   Maximum number of async calls that can be queued and awaiting execution at any one time.
 - **`argsSize`** `int`
   Upper limit in bytes for the combined serialised arguments of a single async call.
+- **`maxConcurrency`** `int` (default `0` = unlimited)
+  Most jobs one async worker runs at the same time. Extra jobs wait in the queue. Set it below your database pool size when async jobs use the database.
+
+When the in-memory queue is full, the call is dropped and an error is logged naming the class and method; the calling request is not failed.
 
 ### Queue Storage
 

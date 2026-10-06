@@ -117,7 +117,7 @@ Annotate any service or component method with `#[Transactional]` to have the fra
   Array of exception class names that must trigger a rollback.
 
 - **`noRollbackFor`** `array` (default: `none`)
-  Array of exception class names that must **not** trigger a rollback.
+  Array of exception class names that must **not** trigger a rollback. When one of them is thrown, the transaction is **committed** and the exception is re-thrown.
 
 - **`label`** `array` (default: `[]`)
   Arbitrary string labels to associate with the transaction for informational purposes.
@@ -129,10 +129,10 @@ Annotate any service or component method with `#[Transactional]` to have the fra
 | `PROPAGATION_REQUIRED` | `0` | Use the current transaction, or create a new one if none exists *(default)* |
 | `PROPAGATION_SUPPORTS` | `1` | Use the current transaction if one exists; otherwise run non-transactionally |
 | `PROPAGATION_MANDATORY` | `2` | Use the current transaction; throw an exception if none exists |
-| `PROPAGATION_REQUIRES_NEW` | `3` | Always create a new transaction, suspending any existing one |
-| `PROPAGATION_NOT_SUPPORTED` | `4` | Always run non-transactionally, suspending any existing transaction |
+| `PROPAGATION_REQUIRES_NEW` | `3` | Always create a new transaction, suspending any existing one. Runs on a separate connection, so it commits or rolls back independently of the outer transaction |
+| `PROPAGATION_NOT_SUPPORTED` | `4` | Always run non-transactionally, suspending any existing transaction. Runs on a separate auto-commit connection |
 | `PROPAGATION_NEVER` | `5` | Run non-transactionally; throw an exception if a transaction exists |
-| `PROPAGATION_NESTED` | `6` | Run within a nested transaction if one exists; falls back to `PROPAGATION_REQUIRED` — **not supported by PDO drivers** |
+| `PROPAGATION_NESTED` | `6` | Run within a savepoint of the current transaction — **not supported by the PDO/OCI managers** (throws) |
 
 ---
 
@@ -228,9 +228,16 @@ class UserService {
 
 ---
 
+## Concurrency and Connections
+
+- Transaction state belongs to the current request (Swoole coroutine). Concurrent requests in the same worker never join, commit or roll back each other's transactions.
+- `REQUIRES_NEW` and `NOT_SUPPORTED` borrow a second connection from the pool for the duration of the call. The data source must implement `IsolatedConnectionProvider` to get that second connection (the built-in PDO and OCI data sources do). A custom data source without it keeps the old behaviour: the inner work runs on the outer connection, so it is not isolated, and a warning is logged once. The second connection counts against the pool's `maxConnections`, but it never waits for a free slot: the request already holds one, and waiting could deadlock concurrent requests on each other. Under full load the pool can therefore briefly hold up to `maxConnections` extra connections, one per nested `REQUIRES_NEW`/`NOT_SUPPORTED` in flight; new requests wait until it is back under the cap.
+- When a request ends, its connection goes back to the pool only after any open transaction is rolled back, so the next request always starts clean.
+- If a connection cannot be opened inside a request, `CannotGetConnectionException` is thrown; the request never falls back to a shared connection.
+
 ## PDO Nested Transaction Limitation
 
-PDO does not natively support nested (savepoint-based) transactions. `PROPAGATION_NESTED` is defined in the `Transaction` interface but falls back to `PROPAGATION_REQUIRED` behaviour when used with PDO-backed data sources.
+PDO does not natively support nested (savepoint-based) transactions. `PROPAGATION_NESTED` is defined in the `Transaction` interface, but the PDO/OCI transaction managers reject it (`NestedTransactionNotSupportedException` / `SQLFeatureNotSupportedException`).
 
 <Aside type="note">
   If you require true nested transaction semantics, implement a custom `PlatformTransactionManager` using a driver that supports savepoints and register it as a named bean.

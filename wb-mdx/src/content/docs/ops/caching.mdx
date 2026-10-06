@@ -41,8 +41,10 @@ class MyApplication {
 - **`cacheNames`** `string|string[]` (default: `"default"`)
   One or more cache container names where the result will be stored. Accepts a single string or an array of strings.
 
-- **`key`** `string` (default: `Method name + arguments`)
-  The key under which the value is cached. Supports `#{param}` expression interpolation.
+- **`key`** `string` (default: `Class::method + arguments`)
+  The key under which the value is cached. Supports `#{param}` expression interpolation. The default key includes the class name and every argument value; arrays and objects are hashed, and keys over 255 characters keep a prefix plus a hash, so different arguments never share an entry. With a custom `key`, keep placeholders unambiguous (`user-#{a}-#{b}` can collide when values contain `-`).
+
+  Cache keys and values are never logged.
 
 - **`keyGenerator`** `string` (default: `Framework managed`)
   Bean name of a class implementing `KeyGenerator` for custom key generation logic.

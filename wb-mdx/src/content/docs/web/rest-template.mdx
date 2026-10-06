@@ -123,7 +123,7 @@ try {
 }
 ```
 
-To receive error responses as entities instead of exceptions, call `$restTemplate->setThrowOnError(false)` — the entity then carries the raw string body. For custom handling, `setErrorHandler()` accepts a `fn(string $method, string $url, int $status, string $body, array $headers): void` invoked for every 4xx/5xx response.
+To receive error responses as entities instead of exceptions, call `$restTemplate->setThrowOnError(false)` — the entity then carries the raw string body. For custom handling, `setErrorHandler()` accepts a `fn(string $method, string $url, int $status, string $body, array $headers): void` invoked for every 4xx/5xx response. The handler can throw its own exception; if it returns, the call yields an entity with the raw string body (it is never decoded as JSON).
 
 ## Timeouts and defaults
 
@@ -134,6 +134,8 @@ $template = new RestTemplate(timeout: 3.0, connectTimeout: 1.5);
 $template->setDefaultHeader('X-Service', 'orders');
 $template->setBasicAuth('user', 'secret');
 ```
+
+Only `http` and `https` URLs are accepted; `file://`, `gopher://` and other schemes are rejected with `RestClientException`, so a URL built from user input cannot read local files. Still validate hosts yourself when the URL comes from a user (internal addresses are reachable).
 
 Every request also sends `Accept: application/json` and a browser `User-Agent` by default (some publishers reject headerless clients with 403); override either per request or via `setDefaultHeader()`. Header names and values containing CR/LF are rejected outright.
 

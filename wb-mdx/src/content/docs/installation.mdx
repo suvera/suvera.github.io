@@ -9,7 +9,7 @@ import { Aside, LinkCard, Steps, Tabs, TabItem } from '@astrojs/starlight/compon
 
 Set up your machine for Winter Boot development. Pick one path — you only need one:
 
-- **Option A — Docker (recommended).** PHP, Swoole, and the commonly needed extensions arrive pre-installed in the Winter Boot base image. No PECL, no `php.ini` editing.
+- **Option A — Docker (recommended).** PHP, Swoole, the `winter_boot` native extension, and the commonly needed extensions arrive pre-installed in the Winter Boot base image. No PECL, no `php.ini` editing, no manual extension builds.
 - **Option B — Manual install.** Install PHP yourself, add extensions via PECL, and require packages with Composer.
 
 ## Option A — Docker (recommended)
@@ -65,13 +65,47 @@ Once the container serves traffic, continue with the [Quickstart](/winter-boot/q
    php -v
    ```
 
-2. **Install the PHP extensions**
+2. **Install the required PHP extensions**
 
-   The `swoole` extension is required for the built-in HTTP server (`WinterWebSwooleApplication`), `#[Async]`, `#[Scheduled]`, daemon threads, and several libraries. Add further extensions only for the integrations you use:
+   Only two extensions are required. Everything else is optional — install it only when you use the integration that needs it (see the table below).
+
+   - **`swoole`** — required for the built-in HTTP server (`WinterWebSwooleApplication`), `#[Async]`, `#[Scheduled]`, daemon threads, and several libraries.
+
+     ```bash
+     pecl install swoole
+     ```
+
+   - **`winter_boot`** — the bundled native extension, required since Winter Boot 2.1.0. The application stops at boot when it is missing. See [Native Extension](/winter-boot/advanced/native-extension/) for what it provides.
+
+     Build it from the `php-ext/` directory shipped with the framework package (`vendor/suvera/winter-boot/php-ext/` for Composer installs, or `php-ext/` in a git checkout). You need PHP development headers (`phpize`, `php-config`):
+
+     ```bash
+     cd vendor/suvera/winter-boot/php-ext/
+     phpize
+     ./configure --enable-winter_boot
+     make
+     make install
+     ```
+
+     After installing, enable both extensions in your `php.ini`:
+
+     ```ini title="php.ini"
+     extension=swoole.so
+     extension=winter_boot.so
+     ```
+
+     Then confirm everything is loaded:
+
+     ```bash
+     php -m | grep -E 'swoole|winter_boot'
+     php -r "echo phpversion('swoole');"
+     php --ri winter_boot
+     ```
+
+   **Optional extensions — only for the integrations you use.** Skip this table otherwise; installing extensions you never use only widens your build and attack surface.
 
    | You need | Extension | Install |
    | --- | --- | --- |
-   | HTTP server, async, scheduling, daemons, Kafka, SQS, DTCE, Eureka, Memdb | `swoole` | `pecl install swoole` |
    | Redis module, DTCE with Redis backend | `redis` (phpredis) | `pecl install redis` |
    | Kafka module, DTCE with Kafka backend | `rdkafka` (needs the `librdkafka-dev` system library) | `pecl install rdkafka` |
    | Memcache module, Memdb Hazelcast client | `memcached` or `memcache` | `pecl install memcached` |
@@ -79,18 +113,9 @@ Once the container serves traffic, continue with the [Quickstart](/winter-boot/q
    | Doctrine with a relational database | one of `pdo_sqlite`, `pdo_mysql`, `pdo_pgsql`, `pdo_sqlsrv`, `pdo_oci` | via your OS PHP packages |
    | Image processing (how-to guides) | `imagick` | `pecl install imagick` |
 
-   After installing, enable each extension in your `php.ini`:
-
-   ```ini title="php.ini"
-   extension=swoole.so
-   ```
-
-   Then confirm everything is loaded:
-
-   ```bash
-   php -m | grep -E 'swoole|redis|rdkafka|memcached|opentelemetry'
-   php -r "echo phpversion('swoole');"
-   ```
+   <Aside type="note">
+     What each extension is needed for — and what happens when it is missing — is covered in [Extension Limits](/winter-boot/ops/extension-limits/).
+   </Aside>
 
 3. **Install the Composer packages**
 
@@ -124,9 +149,10 @@ Once the container serves traffic, continue with the [Quickstart](/winter-boot/q
    ```bash
    php -v
    php -r "echo phpversion('swoole');"
+   php --ri winter_boot
    ```
 
-   Both commands should succeed without errors before you move on.
+   All three commands should succeed without errors before you move on.
 
 </Steps>
 
