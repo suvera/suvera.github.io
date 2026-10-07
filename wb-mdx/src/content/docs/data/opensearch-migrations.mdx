@@ -126,6 +126,22 @@ Every operation is also safe to replay:
 - `timeout` and `connect_timeout` in seconds
 - `proxy` (explicit proxy URL, or `false` to disable proxying)
 
+Values support the same property expressions as everywhere else in the application: `$env.NAME`, `$ini.key` (from the `propertySources` declared in `application.yml`) and fallback chains such as `$env.NAME || default`. This applies to connections in `application.yml` and to those read from module config files such as `opensearch-config.yml`, so the migrator connects with exactly the settings the running application uses. Keep credentials out of version control this way:
+
+```yaml title="opensearch-config.yml"
+opensearch:
+  - name: opensearch
+    hosts:
+      - "$env.OPENSEARCH_HOST || https://localhost:9200"
+    username: "$ini.opensearchUsername"
+    password: "$ini.opensearchPassword"
+    ssl_verification: "$env.OPENSEARCH_SSL_VERIFY || false"
+    migrations:
+      enabled: true
+```
+
+A reference that cannot be resolved (for example a key missing from the ini file) stops the migration with an error instead of skipping the connection.
+
 ## Notes
 
 - The HTTP client is self-contained (no `opensearch-php` dependency). It uses the Swoole coroutine HTTP client inside a Swoole coroutine cURL when available, and the PHP stream wrapper as a fallback. Hosts are tried in order on transport failure.
