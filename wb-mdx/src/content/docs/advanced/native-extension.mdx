@@ -19,7 +19,7 @@ Bean methods carrying aspect attributes (caching, transactions, custom aspects) 
 
 Behavior to be aware of:
 
-- A value supplied through `stopExecution()` must match the method's declared return type exactly — a mismatch throws `TypeError` instead of being coerced.
+- A value supplied through `stopExecution()` (for example a `#[Cacheable]` hit) must match the method's declared return type exactly — a mismatch throws `TypeError` instead of being coerced. Every return-type form is checked like the engine does: nullable and union types (`?Dto`, `array|ResponseEntity`, `string|false`), intersection and DNF types, `callable`, `iterable`, and `static` (the called class). An `int` is still accepted for `float`.
 - Aspect attributes on `static` methods are not supported (`TypeError`).
 - An explicit `parent::` call to a method that itself carries advice runs that advice. Advice never fires for methods without attributes.
 - On controllers, the dispatcher runs the advice of request-mapping endpoints directly (see [AOP on controllers](/winter-boot/core/aop#aop-on-controllers)).
