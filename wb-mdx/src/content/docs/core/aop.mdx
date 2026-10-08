@@ -349,7 +349,9 @@ You can create your own AOP attributes using two components: an **attribute clas
 
 In a `#[RestController]`, put AOP attributes only on endpoint methods — the methods marked with `#[GetMapping]`, `#[PostMapping]`, or the other mapping attributes. Those methods run when someone calls their URL, and your advice runs with them.
 
-Do not put AOP attributes on plain helper methods inside a controller. Helpers run as ordinary method calls, so the advice never runs for them — and nothing warns you. If a helper needs guarding, move that logic into a `#[Service]` bean, where AOP works on every public method.
+Do not put AOP attributes on plain helper methods inside a controller. Helpers run as ordinary method calls, so the advice never runs for them; Winter Boot logs a warning at startup naming each such method. If a helper needs guarding, move that logic into a `#[Service]` bean, where AOP works on every public method.
+
+On an endpoint, the aspect receives the method's arguments in declaration order, the same as on a service. A `#{...}` template such as `#[Lockable(name: "order-#{id}")]` resolves against the `#[PathVariable]` and `#[RequestParam]` values by parameter name.
 
 ---
 

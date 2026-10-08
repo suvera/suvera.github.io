@@ -14,7 +14,7 @@ Build an app that guards a REST endpoint with a custom AOP attribute. You annota
 </Aside>
 
 <Aside type="note">
-  In a controller, put AOP attributes only on endpoint methods — the methods marked with `#[GetMapping]`, `#[PostMapping]`, or the other mapping attributes. Plain helper methods inside a controller never trigger advice, even when annotated, so keep them free of AOP attributes. The same attribute works on every public method of a `#[Service]` bean.
+  In a controller, put AOP attributes only on endpoint methods — the methods marked with `#[GetMapping]`, `#[PostMapping]`, or the other mapping attributes. Plain helper methods inside a controller never trigger advice, even when annotated (a warning is logged at startup), so keep them free of AOP attributes. The same attribute works on every public method of a `#[Service]` bean.
 </Aside>
 
 ## Prerequisites
