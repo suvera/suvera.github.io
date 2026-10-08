@@ -353,6 +353,10 @@ Do not put AOP attributes on plain helper methods inside a controller. Helpers r
 
 On an endpoint, the aspect receives the method's arguments in declaration order, the same as on a service. A `#{...}` template such as `#[Lockable(name: "order-#{id}")]` resolves against the `#[PathVariable]` and `#[RequestParam]` values by parameter name.
 
+<Aside type="note">
+  Placeholder expansion is bounded. A substituted value that itself looks like another placeholder is re-expanded, so a pass that would grow the name beyond 16 MiB is refused with an `AopException` instead of exhausting memory. Same-length and shrinking substitutions are never affected, and real lock and cache names are far below the limit.
+</Aside>
+
 ---
 
 ## WinterAspect lifecycle reference
