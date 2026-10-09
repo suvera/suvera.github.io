@@ -15,6 +15,7 @@ Winter Boot's programming model is built on PHP 8 attributes. This page lists ev
 | `#[Configuration]` | `dev\winterframework\stereotype` | Declares a bean-producing class whose `#[Bean]` methods contribute beans to the container. |
 | `#[PostConstruct]` | `dev\winterframework\stereotype` | Marks a bean method to run after all dependencies are injected. |
 | `#[OnApplicationReady]` | `dev\winterframework\stereotype` | On a bean class implementing `ApplicationReadyEvent`: its `onApplicationReady()` runs once the context is ready. |
+| `#[OnWorkerStart]`, `#[OnWorkerStop]` | `dev\winterframework\stereotype` | On a bean class implementing `WorkerStartEvent` / `WorkerStopEvent`: runs in each Swoole worker as it starts / stops. |
 | `#[Module]` | `dev\winterframework\stereotype` | Registers a class as a Winter module (see [Module System](/winter-boot/core/module-system)). |
 | `#[EnableTransactionManagement]`, `#[EnableCaching]`, `#[EnableAsync]`, `#[EnableScheduling]` | see sections below | Feature switches placed on the `#[WinterBootApplication]` class. |
 

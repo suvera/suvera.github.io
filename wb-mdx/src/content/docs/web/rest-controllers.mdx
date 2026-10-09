@@ -93,7 +93,7 @@ class UserController
 | `getUri()` | Request path without the query string |
 | `getQueryParam($name)` / `getQueryParams()` | One (or all) URL query values |
 | `getPostParam($name)` / `getPostParams()` | One (or all) form fields |
-| `getFirstHeader($name)` / `getHeader($name)` | First value (or all values) of a request header |
+| `getFirstHeader($name)` / `getHeader($name)` | First value (or all values) of a request header; the name is case-insensitive (`user-agent` and `User-Agent` are the same header) |
 | `getCookie($name)` / `getCookies()` | One (or all) request cookies |
 | `getRawBody()` | Request body as plain text |
 | `getContentType()` | Body content type, e.g. `application/json` |
@@ -126,6 +126,8 @@ Winter Boot looks at what a handler returns and sets the `Content-Type` header f
 | `string`, `int`, `float`, `bool` | Sent as-is; `Content-Type: text/plain` |
 | `SplFileInfo` | Streamed as a file download, with `Content-Type`, `Content-Length`, and `Content-Disposition` set |
 | `ResponseEntity` | Full control over status code, headers, and body |
+
+JSON bodies are compact by default. To indent them (easier to read by hand, more bytes on the wire), set `winter.web.json.prettyPrint: true` in `application.yml`.
 
 ### ResponseEntity Builder API
 

@@ -142,7 +142,7 @@ This guide walks you through building a minimal but complete Winter Boot microse
    The entry-point class carries the `#[WinterBootApplication]` attribute, which tells the framework where to find your configuration and which namespaces to scan for beans.
 
    - `configDirectory` — directories containing `application.yml` and any other config files.
-   - `scanNamespaces` — pairs of `[NamespacePrefix, BaseDirectory]` to scan for beans. The classes must be loadable by Composer's autoloader (see *Register Your Namespace with Composer* above).
+   - `scanNamespaces` — pairs of `[NamespacePrefix, BaseDirectory]` to scan for beans. The classes must be loadable by Composer's autoloader (see *Register Your Namespace with Composer* above). A `BaseDirectory` that does not exist (an empty folder git did not keep, for example) is skipped with a warning instead of stopping startup.
 
    ```php title="Application.php"
    <?php

@@ -48,6 +48,16 @@ export default defineConfig({
                 SocialIcons: './src/components/SocialIcons.astro',
             },
             customCss: ['/src/styles/custom.css'],
+            head: [
+                {
+                    tag: 'script',
+                    attrs: {
+                        defer: true,
+                        src: 'https://snowprint.suvera.xyz/snow.js',
+                        'data-domain': 'suvera.github.io',
+                    },
+                },
+            ],
             social: [
                 {
                     icon: 'github',

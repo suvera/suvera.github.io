@@ -86,7 +86,7 @@ datasource:
 - **`rowsPrefetch`** `int` (default: `100`)
   Number of rows to prefetch. Applies to the OCI driver only.
 
-- **`maxConnections`** `int` (default: `50`)
+- **`maxConnections`** `int` (default: `10`)
   Maximum connections in use from this datasource's pool. See [Connection pooling](#connection-pooling).
 
 - **`maxWaitMs`** `int` (default: `5000`)
@@ -567,14 +567,14 @@ class OrderService {
 
 With the built-in server, every request (or job, or message) that touches the database gets its own database connection from its datasource pool, so two concurrent requests can never share (and corrupt) one. Requests that never touch the database open none. When a request finishes, its connection goes back to the pool for the next request, after any transaction it left open is rolled back (a connection that cannot be cleaned is closed instead).
 
-Each pool is capped at **50 connections in use**. The extra connection a `REQUIRES_NEW` or `NOT_SUPPORTED` call borrows counts toward the cap but never waits for a slot, so nested calls cannot deadlock the pool (size the database for up to twice the cap if every request nests one). When all 50 are busy, the next request waits up to **5 seconds** for one to free up; if none does, it fails fast with a clear `PoolExhaustedException` instead of silently sharing a connection. The pool only sees concurrent requests in one worker when Swoole's runtime hooks are on (`server.swoole.hook_flags: SWOOLE_HOOK_ALL`, see the [application.yml reference](/winter-boot/reference/application-yml)); with the default (no hooks) every query blocks its worker. The global defaults live under `winter.coroutine.db` (on under Swoole, off without it):
+Each pool is capped at **10 connections in use** per worker. The extra connection a `REQUIRES_NEW` or `NOT_SUPPORTED` call borrows counts toward the cap but never waits for a slot, so nested calls cannot deadlock the pool (size the database for up to twice the cap if every request nests one). When all 10 are busy, the next request waits up to **5 seconds** for one to free up; if none does, it fails fast with a clear `PoolExhaustedException` instead of silently sharing a connection. The pool only sees concurrent requests in one worker when Swoole's runtime hooks are on (`server.swoole.hook_flags: SWOOLE_HOOK_ALL`, see the [application.yml reference](/winter-boot/reference/application-yml)); with the default (no hooks) every query blocks its worker. The global defaults live under `winter.coroutine.db` (on under Swoole, off without it):
 
 ```yaml
 winter:
     coroutine:
         db:
             enabled: true       # kill switch: set to false to restore old behavior
-            maxConnections: 50  # max open DB connections per pool, 0 = unlimited (not recommended)
+            maxConnections: 10  # max open DB connections per pool per worker, 0 = unlimited (not recommended)
             maxWaitMs: 5000     # how long to wait for a free connection before failing
 ```
 
@@ -585,11 +585,11 @@ datasource:
     -   name: defaultdb
         # ...
         connection:
-            maxConnections: 50
+            maxConnections: 10
             maxWaitMs: 5000
 ```
 
-How to size the cap: add up every pool (using each datasource's override where one is set), multiply by your Swoole worker count, and keep the total below the database's `max_connections` (MySQL defaults to 151, Postgres to 100). If a connection cannot be opened inside a request, the request fails with `CannotGetConnectionException`; it never falls back to a shared connection. Pool exhaustion stays loud with `PoolExhaustedException`.
+How to size the cap: add up every pool (using each datasource's override where one is set), multiply by your Swoole worker count, and keep the total below the database's `max_connections` (MySQL defaults to 151, Postgres to 100). For example, 4 workers × 10 = 40 connections per datasource. Before 2.1.2 the default was 50, so 4 workers could open 200 connections and hit Postgres's "too many clients" under the first traffic spike; raise `winter.coroutine.db.maxConnections` only after checking that sum. If a connection cannot be opened inside a request, the request fails with `CannotGetConnectionException`; it never falls back to a shared connection. Pool exhaustion stays loud with `PoolExhaustedException`.
 
 <Aside type="note">
   PDO data sources set `PDO::ATTR_ORACLE_NULLS => PDO::NULL_EMPTY_STRING` for every driver, so empty strings are read back as `null` on MySQL and PostgreSQL too. Compare with `empty()` or `?? ''` when a column may hold `''`.

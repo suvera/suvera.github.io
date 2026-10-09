@@ -58,11 +58,11 @@ Setting `management.endpoints.enabled: false` (or omitting it entirely) disables
 | `beans` | `/beans` | Lists all beans registered in the application context. |
 | `configprops` | `/configprops` | Displays all `application.yml` properties (secret-looking values masked). |
 | `env` | `/env` | Exposes environment variables (secret-looking values masked). |
-| `health` | `/health` | Aggregated health status from all `#[HealthInformer]` beans. |
+| `health` | `/health` | Aggregated health status from all `#[HealthInformer]` beans. Answers HTTP 503 when the status is `DOWN` or `OUT_OF_SERVICE`, otherwise 200. |
 | `info` | `/info` | Application information contributed by `#[InfoInformer]` beans. |
 | `mappings` | `/mappings` | Lists all registered HTTP route mappings. |
 | `scheduledtasks` | `/scheduledtasks` | Shows all tasks registered with the `#[Scheduled]` attribute. |
-| `prometheus` | `/prometheus` | Prometheus metrics, including `http_request_duration` labeled by route template (e.g. `/users/{id}`) and method. |
+| `prometheus` | `/prometheus` | Prometheus metrics, including `http_request_duration` labeled by route template (e.g. `/users/{id}`) and method, recorded from each worker's first request. |
 | `heapdump` | `/heapdump` | Lists the server's processes (master, workers, task processes) with PID and memory details. |
 
 Each endpoint is served at its default path unless you set `path`. The example above moves them all under `manage/`.
@@ -123,6 +123,8 @@ class DatabaseHealthIndicator implements HealthIndicator
 <Aside type="note">
 You can register as many `#[HealthInformer]` beans as you need. The health endpoint combines all of their statuses: if any single indicator reports `DOWN`, the overall status is `DOWN`.
 </Aside>
+
+The response status follows the aggregated health, so load balancers, Kubernetes probes and Docker `HEALTHCHECK`s that read only the status code see an unhealthy instance: `DOWN` and `OUT_OF_SERVICE` answer **503 Service Unavailable**, `UP` and `UNKNOWN` answer **200 OK**. The JSON body is the same in both cases.
 
 ## Custom Application Info with InfoContributor
 

@@ -113,7 +113,7 @@ winter:
 - **`maxConcurrency`** `int` (default `0` = unlimited)
   Most jobs one async worker runs at the same time. Extra jobs wait in the queue. Set it below your database pool size when async jobs use the database.
 
-When the in-memory queue is full, the call is dropped and an error is logged naming the class and method; the calling request is not failed.
+When the in-memory queue is full, the call is dropped and an error is logged naming the class and method; the calling request is not failed. Enqueuing and processing a call log at `DEBUG` (they were `INFO` before 2.1.2), so a high call rate does not flood the logs.
 
 ### Queue Storage
 

@@ -27,6 +27,8 @@ server:
 
 Documented in [Configuration](/winter-boot/configuration).
 
+`server.port` may come from the environment (`port: "$env.PORT || 8080"`): the resolved string is converted to an integer. Under `server.swoole`, values that resolve to integer strings (`"4"`) or `"true"`/`"false"` are passed to Swoole as integers and booleans.
+
 Every key under `server.swoole` is passed to Swoole's server settings as is, except `hook_flags`, which also accepts names:
 
 | `server.swoole.hook_flags` value | Meaning |
@@ -52,6 +54,8 @@ winter:
     web:
         request:
             enableTrace: true
+        json:
+            prettyPrint: false
     rest:
         timeout: 10.0
         connect-timeout: 5.0
@@ -75,7 +79,7 @@ winter:
     coroutine:
         db:
             enabled: true
-            maxConnections: 50
+            maxConnections: 10
             maxWaitMs: 5000
     telemetry:
         enabled: true
@@ -86,12 +90,13 @@ winter:
 
 - `application.name`, `application.id`, `application.version`: service identity, shown in the startup banner and available from `ApplicationContext`.
 - `web.request.enableTrace`: when `true`, logs a `TRACE START` line on request arrival and a `TRACE FINISH` line (method, URI, response status, time taken) on completion. Default `false`. Documented in [Logging](/winter-boot/ops/logging).
+- `web.json.prettyPrint`: when `false` (default since 2.1.2), JSON response bodies are compact; set `true` to indent them. Documented in [REST Controllers](/winter-boot/web/rest-controllers).
 - `rest.timeout`: overall RestTemplate request timeout in seconds. Default `10.0`. Documented in [RestTemplate](/winter-boot/web/rest-template).
 - `rest.connect-timeout`: RestTemplate connect timeout in seconds. Default `5.0`. Documented in [RestTemplate](/winter-boot/web/rest-template).
 - `task.async.*`: async worker pool size, queue capacity, argument size limit, per-worker concurrency, and queue storage. Documented in [Async Tasks](/winter-boot/async/async-tasks).
 - `task.scheduling.*`: scheduler pool size and capacity. Documented in [Scheduling](/winter-boot/async/scheduling).
 - `kv.*`, `queue.*`: node-local KV and queue stores (`port`, `address`, `token`). Documented in [Local Stores](/winter-boot/advanced/local-stores).
-- `coroutine.db.*`: database connection pool defaults. Documented in [Database](/winter-boot/data/database#connection-pooling).
+- `coroutine.db.*`: database connection pool defaults (`maxConnections` per pool per worker, default `10`; `maxWaitMs`, default `5000`). Documented in [Database](/winter-boot/data/database#connection-pooling).
 - `telemetry.enabled`: set `false` to switch OpenTelemetry off. Documented in [Telemetry](/winter-boot/ops/telemetry).
 - `security.unserialize.allowedClasses`: classes that may be rebuilt when session, shared-cache and shared-queue data is read back. Absent (default) = any class; a list (or comma-separated string) = only those; `[]` = none (objects become `__PHP_Incomplete_Class`). Documented in [Request Sessions](/winter-boot/core/request-sessions).
 

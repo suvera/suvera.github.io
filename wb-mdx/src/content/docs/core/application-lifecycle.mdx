@@ -238,6 +238,44 @@ class AppStartupTasks implements ApplicationReadyEvent {
 
 ---
 
+## `#[OnWorkerStart]` and `#[OnWorkerStop]`
+
+`#[OnApplicationReady]` runs once, in the master process. Code that needs to run **inside each worker process**, such as opening a per-worker connection, warming a worker-local cache, or flushing buffers on the way out, uses the worker lifecycle attributes instead. Both are class-level and only take effect with the `WinterWebSwooleApplication` runner.
+
+- `#[OnWorkerStart]`: the class implements `WorkerStartEvent` (`onWorkerStart(int $workerId): void`), called as each worker starts, after the framework's own worker setup.
+- `#[OnWorkerStop]`: the class implements `WorkerStopEvent` (`onWorkerStop(int $workerId): void`), called as each worker stops (shutdown, reload, `max_request` recycling).
+
+As with `#[OnApplicationReady]`, the class must also carry `#[Component]`, `#[Service]`, or `#[Configuration]`. One class may carry both attributes.
+
+```php title="WorkerResources.php"
+use dev\winterframework\stereotype\{Component, OnWorkerStart, OnWorkerStop};
+use dev\winterframework\core\app\{WorkerStartEvent, WorkerStopEvent};
+
+#[Component]
+#[OnWorkerStart]
+#[OnWorkerStop]
+class WorkerResources implements WorkerStartEvent, WorkerStopEvent {
+
+    public function onWorkerStart(int $workerId): void {
+        // Runs in every HTTP worker and Swoole task worker.
+    }
+
+    public function onWorkerStop(int $workerId): void {
+        // Release what onWorkerStart() opened.
+    }
+}
+```
+
+<Aside type="note">
+  Hooks run in every HTTP worker and every Swoole task worker (`$workerId` is
+  Swoole's worker id). They do not run in async or scheduler worker processes.
+  An exception from `onWorkerStart()` fails that worker, and Swoole starts it
+  again. An exception from `onWorkerStop()` is logged and the remaining stop
+  hooks still run.
+</Aside>
+
+---
+
 ## Shutdown hooks
 
 Winter Boot automatically registers bean destroy methods to run on process exit. When a `#[Bean]` factory method declares a `destroyMethod`, the framework registers it with PHP's shutdown mechanism. On process exit, all registered destroy methods are called in registration order.

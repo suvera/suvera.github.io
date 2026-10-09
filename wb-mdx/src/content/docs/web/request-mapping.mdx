@@ -14,7 +14,7 @@ Winter Boot routes requests with PHP 8 attributes. Instead of a central routes f
 `#[RequestMapping]` (namespace `dev\winterframework\stereotype\web\RequestMapping`) can be applied at **class level** to set a base URI prefix, or at **method level** to define the full route for that handler. When both are present, the class-level path is prepended to the method-level path automatically.
 
 - **`path`** `string|array`
-  The URI pattern for this mapping. Supports `{variable}` placeholders for path variables. Accepts a single string or an array of strings to map multiple paths to the same handler.
+  The URI pattern for this mapping. Supports `{variable}` placeholders for path variables. Accepts a single string or an array of strings to map multiple paths to the same handler. Literal segments may contain letters, digits, `_`, `-` and `.`, so file-like routes such as `/robots.txt` or `/assets/app.min.js` work; a segment made only of dots (`.`, `..`) is rejected at startup. A literal segment takes priority over a `{variable}` at the same position.
 
 - **`method`** `array`
   List of `RequestMethod` constants this handler accepts — for example, `[RequestMethod::GET, RequestMethod::POST]`. Defaults to all HTTP methods when omitted.

@@ -19,6 +19,15 @@ Winter Boot ships two lightweight stores — a key-value store and a queue store
 
 The KV store is a fast key-value store whose keys are grouped by a *domain* string. Any bean can use it by autowiring `KvTemplate`, and the `SharedKvCache` cache backend is built on it.
 
+<Aside type="note">
+  `KvTemplate` and `QueueSharedTemplate` are safe to use from concurrent
+  requests. Inside a coroutine each call runs on its own non-blocking
+  connection (idle connections are kept and reused), so a slow store call
+  never blocks the other requests on the same worker, and no request can
+  receive another one's reply. Outside coroutines (startup, CLI) a plain
+  blocking connection is used.
+</Aside>
+
 ### Enabling the KV Store
 
 Add the following block to your `application.yml`. The store will not start unless `port` is a positive integer.
