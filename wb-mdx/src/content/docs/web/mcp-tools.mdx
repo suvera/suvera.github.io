@@ -1,9 +1,9 @@
 ---
-title: "MCP Tools: Expose Winter Boot Endpoints to AI Agents"
+title: "MCP Tools, Resources and Prompts: Expose Winter Boot to AI Agents"
 sidebar:
   label: "MCP Tools"
   order: 5
-description: "Turn REST endpoints and service methods into Model Context Protocol tools with #[McpTool]. Schemas, names and hints are derived from your PHP code."
+description: "Turn REST endpoints and service methods into Model Context Protocol tools with #[McpTool], and serve resources and prompts with #[McpResource] and #[McpPrompt]."
 ---
 
 import { Aside, Steps } from '@astrojs/starlight/components';
@@ -953,6 +953,133 @@ class ReadOnlyKeyGuard implements McpToolInterceptor
 
 A hidden tool answers `tools/call` exactly like an unknown one.
 
+`McpToolContext` also gives the call's validated arguments and, in `afterCall()`, how it ended (2.1.7+):
+
+- `$ctx->getArguments()`, or `$ctx->getArgument('site')`: for example for an audit log. Arguments can carry user data, so log only what you need.
+- `$ctx->getOutcome()`: `ok`, `tool_error` (an error result the model sees: invalid arguments, `McpToolArgumentException`, a 4xx), `denied` or `internal`; `$ctx->isOk()` is the short form. The `$error` parameter of `afterCall()` is only set when an exception was thrown, so use the outcome to count failures.
+
+```php
+public function afterCall(McpToolDefinition $tool, McpToolContext $ctx, ?\Throwable $error): void
+{
+    self::logInfo('MCP audit', [
+        'tool' => $tool->name,
+        'site' => mb_substr((string)$ctx->getArgument('site', ''), 0, 255),
+        'outcome' => $ctx->getOutcome(),
+    ]);
+}
+```
+
+## Resources
+
+Resources are data a client can read and show to the model, such as a report or a configuration, without the model calling a tool. Put `#[McpResource]` on a `#[Service]` or `#[Component]` method (2.1.7+).
+
+```php title="SiteResources.php"
+use dev\winterframework\mcp\exception\McpResourceNotFoundException;
+use dev\winterframework\stereotype\mcp\McpResource;
+use dev\winterframework\stereotype\Service;
+use dev\winterframework\web\http\HttpRequest;
+
+#[Service]
+class SiteResources
+{
+    /** Public settings of this server. */
+    #[McpResource(uri: 'config://app', title: 'App configuration')]
+    public function config(): array
+    {
+        return ['version' => '1.4', 'timezone' => 'UTC'];
+    }
+
+    /**
+     * Traffic overview for a site; range is "today" or "last-7-days".
+     */
+    #[McpResource(uri: 'site://{domain}/summary/{range}', name: 'site_summary', listMethod: 'listSummaries')]
+    public function summary(string $domain, string $range, HttpRequest $request): array
+    {
+        if (!$this->canRead($request, $domain) || !in_array($range, ['today', 'last-7-days'], true)) {
+            throw new McpResourceNotFoundException('no such site or range');
+        }
+        return $this->stats->overview($domain, $range);
+    }
+
+    /** The summaries this caller may read, for resources/list. */
+    public function listSummaries(HttpRequest $request): array
+    {
+        $out = [];
+        foreach ($this->sitesFor($request) as $site) {
+            $out[] = ['uri' => "site://$site/summary/today", 'name' => "$site today", 'title' => "$site: today"];
+        }
+        return $out;
+    }
+}
+```
+
+| Option | Meaning |
+| --- | --- |
+| `uri` (required) | A fixed URI (`config://app`), or a URI template with `{placeholders}`. Each placeholder is passed to the method parameter of the same name, as a string, `int`, `float` or `bool`. A placeholder matches one path segment. |
+| `name` | Resource name; default derived like tool names. |
+| `title`, `description` | Shown to users and the model. The description defaults to the PHPDoc summary. |
+| `mimeType` | Default `text/plain` when the method returns `string`, otherwise `application/json`. |
+| `listMethod` | A public method of the same bean returning the concrete resources for `resources/list`: a list of `['uri' => ..., 'name' => ...]` arrays, optionally with `title`, `description` and `mimeType`. It may take an `HttpRequest` parameter to list only what the caller may read. |
+
+How they're served:
+
+- A fixed URI appears in `resources/list`; a template in `resources/templates/list`, and the entries of its `listMethod` in `resources/list`.
+- `resources/read` finds the resource by URI, binds the placeholders, and returns the method's result: a `string` as is, anything else as JSON.
+- A URI that matches nothing, a placeholder that doesn't fit its parameter type (`item://abc` for an `int $id`), a method that returns `null` or throws `McpResourceNotFoundException`, and a `HttpRestException` with 401, 403 or 404 are all answered with **"Resource not found"** (`-32002`). A resource the caller may not see therefore looks the same as one that doesn't exist.
+- Declare an `HttpRequest` parameter to see the caller's headers. Resources are protected by the interceptors on `/mcp` (see Authentication); `McpToolInterceptor` applies to tools only.
+- Startup fails when a placeholder has no parameter of the same name (or the other way round), a placeholder appears twice, a `listMethod` is missing or needs arguments, or two resources share a name or URI.
+
+## Prompts
+
+Prompts are reusable message templates that clients offer to users, for example as slash commands. Put `#[McpPrompt]` on a `#[Service]` or `#[Component]` method (2.1.7+):
+
+```php title="ReportPrompts.php"
+use dev\winterframework\stereotype\mcp\McpPrompt;
+use dev\winterframework\stereotype\Service;
+
+#[Service]
+class ReportPrompts
+{
+    /**
+     * Summarise the last 7 days against the week before.
+     *
+     * @param string      $site   Site domain.
+     * @param string|null $period Period, e.g. 30d.
+     */
+    #[McpPrompt(name: 'weekly_report', title: 'Weekly report')]
+    public function weekly(string $site, ?string $period = null): string
+    {
+        return "Write a weekly traffic report for $site over " . ($period ?? 'the last 7 days') . '.';
+    }
+
+    /** Find out what caused a spike or drop in traffic. */
+    #[McpPrompt(name: 'explain_spike')]
+    public function explainSpike(string $site, string $date = 'the recent change'): array
+    {
+        return [
+            ['role' => 'user', 'text' => "Traffic for $site changed around $date. Find the cause."],
+            ['role' => 'assistant', 'text' => 'I will compare the days before and after, by source and page.'],
+        ];
+    }
+}
+```
+
+`prompts/list` shows:
+
+```json
+{"name": "weekly_report", "title": "Weekly report",
+ "description": "Summarise the last 7 days against the week before.",
+ "arguments": [
+   {"name": "site", "description": "Site domain.", "required": true},
+   {"name": "period", "description": "Period, e.g. 30d.", "required": false}
+ ]}
+```
+
+- The prompt's arguments are the method's parameters, which must be `string` (MCP prompt arguments are strings). An argument is required unless it has a default or is nullable; its description is the `@param` text. An `HttpRequest` parameter is injected instead.
+- The method returns the text of one user message, or a list of `['role' => 'user' | 'assistant', 'text' => ...]` messages.
+- `prompts/get` with a missing required argument, an unknown argument or a non-string value is rejected (`-32602`) without calling the method. Throw `McpToolArgumentException` for other invalid values.
+- Names default like tool names (`report_prompts_weekly`) and must be unique.
+
 ## Configuration
 
 All keys are optional:
@@ -961,7 +1088,8 @@ All keys are optional:
 winter:
     mcp:
         path: /mcp                    # relative to server.context-path
-        serverName: Order Service     # default: winter.application.name
+        serverName: orders            # default: winter.application.name
+        serverTitle: Order Service    # shown by clients; not sent when empty (2.1.7+)
         instructions: "Start with search_orders."
         allowedOrigins: [ "https://inspector.example" ]
         maxBodyBytes: 1048576
@@ -973,10 +1101,10 @@ With `server.context-path: /svc` the endpoint is `/svc/mcp`. The server version 
 
 - Transport: Streamable HTTP, stateless, plain JSON responses. No sessions and no server-sent events (`GET` returns `405`).
 - Protocol versions `2025-11-25`, `2025-06-18` and `2025-03-26`. An unknown requested version gets `2025-11-25`, and an unsupported `MCP-Protocol-Version` header gets `400`.
-- Supported methods: `initialize`, `ping`, `tools/list`, `tools/call`. Notifications get `202`. JSON-RPC batches get `400`.
+- Supported methods: `initialize`, `ping`, `tools/list`, `tools/call`; with resources (2.1.7+) `resources/list`, `resources/templates/list`, `resources/read`; with prompts (2.1.7+) `prompts/list`, `prompts/get`. `initialize` advertises only what the application has. Notifications get `202`. JSON-RPC batches get `400`.
 - Requests must be `Content-Type: application/json`. An `Accept` header, when sent, must allow JSON. Bodies over `maxBodyBytes` get `413`.
 - Metrics: `mcp_tool_calls` (labels `tool`, `outcome`) and `mcp_tool_duration` (label `tool`), next to `http_request_duration`.
-- Resources, prompts, progress notifications and cancellation aren't supported yet.
+- Resource subscriptions, progress notifications and cancellation aren't supported yet.
 
 ## Startup Errors
 
