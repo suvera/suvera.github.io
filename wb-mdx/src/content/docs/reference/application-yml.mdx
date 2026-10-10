@@ -86,6 +86,12 @@ winter:
     security:
         unserialize:
             allowedClasses: [App\Dto\User, App\Dto\Cart]
+    mcp:
+        path: /mcp
+        serverName: "My Winter App"
+        instructions: ""
+        allowedOrigins: []
+        maxBodyBytes: 1048576
 ```
 
 - `application.name`, `application.id`, `application.version`: service identity, shown in the startup banner and available from `ApplicationContext`.
@@ -98,6 +104,7 @@ winter:
 - `kv.*`, `queue.*`: node-local KV and queue stores (`port`, `address`, `token`). Documented in [Local Stores](/winter-boot/advanced/local-stores).
 - `coroutine.db.*`: database connection pool defaults (`maxConnections` per pool per worker, default `10`; `maxWaitMs`, default `5000`). Documented in [Database](/winter-boot/data/database#connection-pooling).
 - `telemetry.enabled`: set `false` to switch OpenTelemetry off. Documented in [Telemetry](/winter-boot/ops/telemetry).
+- `mcp.*`: the MCP tools endpoint, active only when the application has a `#[McpTool]`. `path`: endpoint path relative to `server.context-path`, default `/mcp`. `serverName`: name reported to MCP clients, default `application.name`. `instructions`: text sent to clients on `initialize`, default empty. `allowedOrigins`: exact `Origin` values browsers may call from; any other request with an `Origin` header gets 403, default `[]`. `maxBodyBytes`: request size limit, default `1048576`. Documented in [MCP Tools](/winter-boot/web/mcp-tools).
 - `security.unserialize.allowedClasses`: classes that may be rebuilt when session, shared-cache and shared-queue data is read back. Absent (default) = any class; a list (or comma-separated string) = only those; `[]` = none (objects become `__PHP_Incomplete_Class`). Documented in [Request Sessions](/winter-boot/core/request-sessions).
 
 ### `datasource`

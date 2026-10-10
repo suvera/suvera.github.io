@@ -21,6 +21,10 @@
         <lastmod>2026-10-29T11:40:17+00:00</lastmod>
     </url>
     <url>
+        <loc>https://suvera.github.io/winter-boot/advanced/native-extension/</loc>
+        <lastmod>2026-10-10T04:15:53+00:00</lastmod>
+    </url>
+    <url>
         <loc>https://suvera.github.io/winter-boot/async/async-tasks/</loc>
         <lastmod>2026-10-29T11:40:17+00:00</lastmod>
     </url>
@@ -129,6 +133,42 @@
         <lastmod>2026-10-29T11:40:17+00:00</lastmod>
     </url>
     <url>
+        <loc>https://suvera.github.io/winter-boot/howto/abac/</loc>
+        <lastmod>2026-10-10T04:15:53+00:00</lastmod>
+    </url>
+    <url>
+        <loc>https://suvera.github.io/winter-boot/howto/build-ui/</loc>
+        <lastmod>2026-10-10T04:15:53+00:00</lastmod>
+    </url>
+    <url>
+        <loc>https://suvera.github.io/winter-boot/howto/email/</loc>
+        <lastmod>2026-10-10T04:15:53+00:00</lastmod>
+    </url>
+    <url>
+        <loc>https://suvera.github.io/winter-boot/howto/gemini/</loc>
+        <lastmod>2026-10-10T04:15:53+00:00</lastmod>
+    </url>
+    <url>
+        <loc>https://suvera.github.io/winter-boot/howto/images/</loc>
+        <lastmod>2026-10-10T04:15:53+00:00</lastmod>
+    </url>
+    <url>
+        <loc>https://suvera.github.io/winter-boot/howto/overview/</loc>
+        <lastmod>2026-10-10T04:15:53+00:00</lastmod>
+    </url>
+    <url>
+        <loc>https://suvera.github.io/winter-boot/howto/pdf/</loc>
+        <lastmod>2026-10-10T04:15:53+00:00</lastmod>
+    </url>
+    <url>
+        <loc>https://suvera.github.io/winter-boot/howto/rbac/</loc>
+        <lastmod>2026-10-10T04:15:53+00:00</lastmod>
+    </url>
+    <url>
+        <loc>https://suvera.github.io/winter-boot/installation/</loc>
+        <lastmod>2026-10-10T04:15:53+00:00</lastmod>
+    </url>
+    <url>
         <loc>https://suvera.github.io/winter-boot/introduction/</loc>
         <lastmod>2026-10-29T11:40:17+00:00</lastmod>
     </url>
@@ -189,6 +229,10 @@
         <lastmod>2026-10-29T11:40:17+00:00</lastmod>
     </url>
     <url>
+        <loc>https://suvera.github.io/winter-boot/ops/extension-limits/</loc>
+        <lastmod>2026-10-10T04:15:53+00:00</lastmod>
+    </url>
+    <url>
         <loc>https://suvera.github.io/winter-boot/ops/locking/</loc>
         <lastmod>2026-10-29T11:40:17+00:00</lastmod>
     </url>
@@ -205,6 +249,10 @@
         <lastmod>2026-10-29T11:40:17+00:00</lastmod>
     </url>
     <url>
+        <loc>https://suvera.github.io/winter-boot/real-applications/</loc>
+        <lastmod>2026-10-10T04:15:53+00:00</lastmod>
+    </url>
+    <url>
         <loc>https://suvera.github.io/winter-boot/reference/application-yml/</loc>
         <lastmod>2026-10-29T11:40:17+00:00</lastmod>
     </url>
@@ -217,6 +265,10 @@
         <lastmod>2026-10-29T11:40:17+00:00</lastmod>
     </url>
     <url>
+        <loc>https://suvera.github.io/winter-boot/web/mcp-tools/</loc>
+        <lastmod>2026-10-10T04:15:53+00:00</lastmod>
+    </url>
+    <url>
         <loc>https://suvera.github.io/winter-boot/web/request-mapping/</loc>
         <lastmod>2026-10-29T11:40:17+00:00</lastmod>
     </url>
@@ -225,7 +277,7 @@
         <lastmod>2026-10-29T11:40:17+00:00</lastmod>
     </url>
     <url>
-        <loc>https://suvera.github.io/winter-boot/examples/redis-queue/</loc>
-        <lastmod>2026-10-29T11:40:17+00:00</lastmod>
+        <loc>https://suvera.github.io/winter-boot/web/rest-template/</loc>
+        <lastmod>2026-10-10T04:15:53+00:00</lastmod>
     </url>
 </urlset>

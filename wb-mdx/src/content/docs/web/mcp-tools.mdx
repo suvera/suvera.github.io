@@ -1,0 +1,997 @@
+---
+title: "MCP Tools: Expose Winter Boot Endpoints to AI Agents"
+sidebar:
+  label: "MCP Tools"
+  order: 5
+description: "Turn REST endpoints and service methods into Model Context Protocol tools with #[McpTool]. Schemas, names and hints are derived from your PHP code."
+---
+
+import { Aside, Steps } from '@astrojs/starlight/components';
+
+The [Model Context Protocol](https://modelcontextprotocol.io) (MCP) lets AI agents such as Claude call tools on a server. Winter Boot can serve your existing code as MCP tools: add `#[McpTool]` to a REST endpoint or a service method, and the application answers MCP requests on `POST <context-path>/mcp`.
+
+There is nothing else to set up. No extra process, port or required configuration, and nothing is exposed unless a method has the attribute.
+
+## Quick Start
+
+```php title="OrderController.php"
+<?php
+
+namespace App\Controller;
+
+use dev\winterframework\stereotype\mcp\McpTool;
+use dev\winterframework\stereotype\RestController;
+use dev\winterframework\stereotype\web\GetMapping;
+use dev\winterframework\stereotype\web\PathVariable;
+use dev\winterframework\stereotype\web\RequestMapping;
+
+#[RestController]
+#[RequestMapping(path: '/api/orders')]
+class OrderController
+{
+    /**
+     * Fetch one order with its line items and payment status.
+     *
+     * @param int $id Order number, as printed on the invoice.
+     * @return array{id: int, status: string, totalCents: int}
+     */
+    #[GetMapping(path: '/{id}')]
+    #[McpTool]
+    public function get(#[PathVariable] int $id): array
+    {
+        return $this->orders->find($id);
+    }
+}
+```
+
+Start the application and point an MCP client at it. For Claude Code:
+
+```bash
+claude mcp add --transport http orders http://localhost:8080/mcp \
+    --header "Authorization: Bearer <token>"
+```
+
+The client now sees a tool named `order_get` with an integer `id` argument, described by your PHPDoc. The `@return` shape tells agents what the result contains.
+
+<Aside type="note">
+  An `array` **argument** must be described (PHPDoc, a DTO or `inputSchema`), or the application doesn't start. An `array` **result** may stay undescribed: the tool still works, and agents get the JSON as text with no result schema. Describing it, as above, is better.
+</Aside>
+
+## How It Works
+
+<Steps>
+
+1. **Discovery.** `#[McpTool]` is found during the normal class scan. Each tool's name, argument schema, result schema and hints are derived once, at startup.
+
+2. **Fail at boot.** An argument the framework can't describe (for example an untyped `array` parameter) stops the application with an error that names the method and the fix, instead of failing later when an agent calls it. Results are different: an undescribed result only means the tool has no result schema.
+
+3. **Endpoint.** When at least one tool exists, Winter Boot registers `POST /mcp` (relative to `server.context-path`) on the existing server and workers. `GET` and `DELETE` answer `405`.
+
+4. **Calls.** A tool on a REST endpoint is called **through the normal request pipeline**: Winter Boot builds an in-process HTTP request from the tool arguments and dispatches it. Argument binding, `HandlerInterceptor`s, `ControllerInterceptor`, AOP (`#[Transactional]`, `#[Cacheable]`, ...) and your error controller behave exactly as for an HTTP client. A tool on a service method is called on the bean.
+
+</Steps>
+
+## Where `#[McpTool]` Can Go
+
+| Target | Called through |
+| --- | --- |
+| A request-mapped method of a `#[RestController]` | The REST pipeline, as an in-process request |
+| A public method of a `#[Service]` or `#[Component]` | The bean (its AOP applies) |
+
+Anything else (static, private or abstract methods, other classes, controller methods without a mapping) is a boot error.
+
+## What Is Derived
+
+### Tool arguments
+
+| Parameter | Becomes | Value comes from |
+| --- | --- | --- |
+| `#[PathVariable]` | required argument (`int` gets `"minimum": 0`) | tool arguments |
+| `#[RequestParam]` (source `request`, `get`, `post`) | argument, required when `required: true` (the default) | tool arguments |
+| `#[RequestParam]` (source `header`, `cookie`) | **not an argument** | the caller's `/mcp` request |
+| `#[RequestBody]` | required argument named after the parameter | tool arguments |
+| `HttpRequest`, `ResponseEntity` | not an argument | the dispatcher |
+| service method parameter | argument; required when it has no default and isn't nullable | tool arguments |
+| service `HttpRequest`, `McpToolContext` | not an argument | injected |
+
+Unknown arguments are rejected. Header and cookie parameters are never shown to the model: they are part of the caller's identity, and the values of the `/mcp` request are used.
+
+<Aside type="caution">
+  `#[RequestParam]` is required by default, even when the PHP parameter has a default value: that is what the dispatcher enforces. Write `#[RequestParam(required: false)] int $limit = 20` to make it optional for agents too.
+</Aside>
+
+### PHP types
+
+| PHP type | JSON Schema |
+| --- | --- |
+| `int`, `float`, `string`, `bool` | `integer`, `number`, `string`, `boolean` |
+| nullable (`?T`) | `null` allowed |
+| backed enum | `enum` of the case values |
+| unit enum | `enum` of the case names |
+| `DateTimeInterface` | `string`, `format: date-time` |
+| DTO class | object of its public properties and every property with `#[JsonProperty]`, using the JSON names |
+| `array` | from PHPDoc, see below |
+| `mixed`, `object`, no type | argument: boot error; result: no schema |
+
+A DTO property is required when it has no default value and isn't nullable. Descriptions come from `@param` text and property doc comments. DTOs appear once under `$defs`; a DTO that contains itself is supported.
+
+### Arrays
+
+PHP's `array` type doesn't say what is inside, so Winter Boot reads the PHPDoc and never guesses:
+
+| PHPDoc | Schema |
+| --- | --- |
+| `list<T>`, `T[]`, `array<int, T>` | array of `T` |
+| `array<string, T>` | object whose values are `T` |
+| `array{id: int, note?: string}` | object; `note` optional |
+| `#[JsonProperty(listClass: T::class)]` on a DTO property | array of `T` |
+| nothing usable, on an **argument** | **boot error** |
+| nothing usable, on a **result** | no result schema; the result is sent as text |
+
+Class names in PHPDoc resolve through your `use` imports. The error for an untyped argument tells you the three fixes:
+
+```text
+#[McpTool] App\Service\OrderSearch::search(): parameter $filters has no describable type. Describe it with one of:
+  - a PHPDoc type:      @param array<string, string> $filters
+  - a DTO class:        SomeDto $filters
+  - an explicit schema: #[McpTool(inputSchema: [...])]
+```
+
+### Results
+
+| Return value | Agents receive |
+| --- | --- |
+| object (DTO, map, `array{...}`) | the object |
+| list | `{"items": [...]}` |
+| scalar or enum | `{"result": value}` |
+| `void`, `ResponseEntity` (without `outputType`), untyped | text only |
+
+Every result also includes the JSON as text, for clients that don't read structured results. A result that doesn't match its declared schema is logged and returned as `internal error`.
+
+<Aside type="note">
+  For a **REST** endpoint the result is the JSON body your endpoint renders, and that encoding ignores `#[JsonProperty]` names. So a result schema is derived only from `array` PHPDoc (`list<...>`, `array{...}`). To describe a DTO-shaped body, set `outputType` or `outputSchema`. Service tools don't have this limit.
+</Aside>
+
+### Hints
+
+Clients use hints to decide whether to ask the user before calling a tool. They are derived from the HTTP method:
+
+| HTTP method | `readOnlyHint` | `destructiveHint` | `idempotentHint` |
+| --- | --- | --- | --- |
+| `GET`, `HEAD` | `true` | — | — |
+| `PUT` | `false` | `false` | `true` |
+| `DELETE` | `false` | `true` | `true` |
+| `POST`, `PATCH` | `false` | `true` | `false` |
+| service method | `false` | `true` | `false` |
+
+A tool is read-only only when its method is `GET`/`HEAD` or you set `readOnly: true`. Hints are advice to clients, not permission checks.
+
+## `#[McpTool]` Arguments
+
+Every argument is optional, except that the tool needs a description from the attribute or the PHPDoc. Explicit values always win over derived ones.
+
+### `description`
+
+`string`, default `''`. What the tool does, written for the model: when to use it, what it returns, units and limits. If empty, the first paragraph of the method's PHPDoc is used. If both are empty, boot fails.
+
+### `name`
+
+`?string`, default derived. The derived name is `<prefix>_<method>` in snake_case, where the prefix is the class name without a trailing `Controller`, `Service` or `Component`: `OrderController::get` becomes `order_get`, `InvoiceService::resendEmail` becomes `invoice_resend_email`. Names must match `^[A-Za-z0-9_.-]{1,128}$` and be unique in the application; a clash fails at boot and names both methods. Renaming a tool breaks agents that use it, so set `name` on tools you publish.
+
+### `title`
+
+`?string`, default none. A short label for client UIs, such as `"Create order"`.
+
+### `inputSchema`
+
+`?array`, default derived. A complete JSON Schema for the arguments. Nothing is derived when it is set, so use it for inputs the signature can't describe. Its top level must be `"type": "object"`, its `properties` must be exactly the tool's arguments, and every argument without a default must be in `required`; otherwise boot fails. At call time `type`, `enum`, `const`, `required`, `properties`, `additionalProperties`, `items`, `anyOf`, `$ref`, `minimum` and `maximum` are enforced. Other keywords (`format`, `pattern`, `oneOf`, ...) are passed to the client but **not** enforced, so validate those values in the method.
+
+### `outputSchema`
+
+`?array`, default derived. A complete JSON Schema for the result. The top level must be `"type": "object"`, and it can't be combined with `outputType`.
+
+### `outputType`
+
+`?string`, default none. The DTO class the result really is, for methods that return `ResponseEntity`, `array`, `mixed`, `object` or nothing typed. Setting it on a method that already returns a DTO fails at boot. For REST endpoints it is your promise about the JSON body, which is checked on every call.
+
+### `httpMethod`
+
+`?string`, default derived. Required when a `#[RequestMapping]` allows several HTTP methods (or none, which means all). It must be one of the mapping's methods, and it isn't allowed on service tools. It also decides the derived hints.
+
+### `readOnly`, `destructive`, `idempotent`, `openWorld`
+
+`?bool`, default derived (`openWorld`: not sent). They override the hints in the table above. `destructive` and `idempotent` are only sent for tools that aren't read-only. Set `openWorld: true` when the tool reaches systems outside your application (an external API, email). `readOnly: true` together with `destructive: true` or `idempotent: false` fails at boot.
+
+## Examples
+
+The model classes used below. DTOs that arrive as arguments are built like request bodies, so they need a constructor without required arguments, and nested objects and lists need `#[JsonProperty]`.
+
+```php title="Models.php"
+enum OrderStatus: string {
+    case Open = 'open';
+    case Paid = 'paid';
+    case Refunded = 'refunded';
+}
+
+enum Carrier {
+    case Dhl;
+    case Ups;
+    case Fedex;
+}
+
+class Address {
+    /** Street and house number. */
+    public string $street;
+    public string $city;
+    /** ISO 3166-1 alpha-2 country code, e.g. "DE". */
+    public string $country;
+    public ?string $postcode = null;
+}
+
+class OrderLineInput {
+    public string $sku;
+    /** Number of units, at least 1. */
+    public int $quantity = 1;
+}
+
+class CreateOrderRequest {
+    public string $customerId;
+
+    /** At least one line. */
+    #[JsonProperty(listClass: OrderLineInput::class)]
+    public array $lines = [];
+
+    #[JsonProperty]
+    public Address $shipTo;
+
+    /** Defaults to the shipping address. */
+    #[JsonProperty]
+    public ?Address $billTo = null;
+
+    /**
+     * Free-form labels, e.g. {"channel": "phone"}.
+     * @var array<string, string>
+     */
+    public array $labels = [];
+
+    #[JsonProperty('deliver_after')]
+    public ?DateTimeImmutable $deliverAfter = null;
+}
+
+class OrderLineDto {
+    public string $sku;
+    public int $quantity;
+    /** Unit price in cents. */
+    #[JsonProperty('unit_price')]
+    public int $unitPrice;
+}
+
+class OrderDto {
+    public int $id;
+    public OrderStatus $status;
+    public DateTimeImmutable $createdAt;
+    #[JsonProperty(listClass: OrderLineDto::class)]
+    public array $lines = [];
+    public Address $shipTo;
+    public ?string $note = null;
+}
+
+class CategoryNode {
+    public string $slug;
+    public string $label;
+    #[JsonProperty(listClass: CategoryNode::class)]
+    public array $children = [];
+}
+```
+
+Each JSON block is the exact `tools/list` entry Winter Boot produces for the code above it.
+
+### REST endpoint with `outputType`
+
+```php
+#[RestController]
+#[RequestMapping(path: '/api/orders')]
+class OrderController
+{
+    /**
+     * Fetch one order with its line items and payment status.
+     *
+     * @param int $id Order number, as printed on the invoice.
+     */
+    #[GetMapping(path: '/{id}')]
+    #[McpTool(outputType: OrderDto::class)]
+    public function get(#[PathVariable] int $id): array { /* ... */ }
+}
+```
+
+```json
+{
+  "name": "order_get",
+  "description": "Fetch one order with its line items and payment status.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "integer",
+        "minimum": 0,
+        "description": "Order number, as printed on the invoice."
+      }
+    },
+    "required": ["id"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "id": {"type": "integer"},
+      "status": {"type": "string", "enum": ["open", "paid", "refunded"]},
+      "createdAt": {"type": "string", "format": "date-time"},
+      "lines": {"type": "array", "items": {"$ref": "#/$defs/OrderLineDto"}, "default": []},
+      "shipTo": {"$ref": "#/$defs/Address"},
+      "note": {"type": ["string", "null"], "default": null}
+    },
+    "required": ["id", "status", "createdAt", "shipTo"],
+    "$defs": {
+      "OrderLineDto": {
+        "type": "object",
+        "properties": {
+          "sku": {"type": "string"},
+          "quantity": {"type": "integer"},
+          "unit_price": {"type": "integer", "description": "Unit price in cents."}
+        },
+        "required": ["sku", "quantity", "unit_price"]
+      },
+      "Address": {
+        "type": "object",
+        "properties": {
+          "street": {"type": "string", "description": "Street and house number."},
+          "city": {"type": "string"},
+          "country": {
+            "type": "string",
+            "description": "ISO 3166-1 alpha-2 country code, e.g. \"DE\"."
+          },
+          "postcode": {"type": ["string", "null"], "default": null}
+        },
+        "required": ["street", "city", "country"]
+      }
+    }
+  },
+  "annotations": {"readOnlyHint": true}
+}
+```
+
+The method returns an `array`, which says nothing about its shape, so `outputType` describes it. The endpoint must then return arrays shaped like `OrderDto`, with JSON names and dates as strings.
+
+### Query parameters, a hidden header and a list result
+
+```php
+/**
+ * Search orders, newest first.
+ *
+ * @param string|null $status   Only orders in this status: open, paid or refunded.
+ * @param string|null $customer Only orders of this customer id.
+ * @param int         $limit    Maximum number of orders to return, 1 to 100.
+ * @return list<array{id: int, status: string, totalCents: int}>
+ */
+#[GetMapping(path: '/search')]
+#[McpTool(name: 'search_orders', title: 'Search orders')]
+public function search(
+    #[RequestParam(source: 'header', name: 'X-Tenant')] string $tenant,
+    #[RequestParam(required: false)] ?string $status = null,
+    #[RequestParam(required: false)] ?string $customer = null,
+    #[RequestParam(required: false)] int $limit = 20,
+): array { /* ... */ }
+```
+
+```json
+{
+  "name": "search_orders",
+  "title": "Search orders",
+  "description": "Search orders, newest first.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "status": {
+        "type": ["string", "null"],
+        "description": "Only orders in this status: open, paid or refunded."
+      },
+      "customer": {
+        "type": ["string", "null"],
+        "description": "Only orders of this customer id."
+      },
+      "limit": {
+        "type": "integer",
+        "default": 20,
+        "description": "Maximum number of orders to return, 1 to 100."
+      }
+    },
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {"type": "integer"},
+            "status": {"type": "string"},
+            "totalCents": {"type": "integer"}
+          },
+          "required": ["id", "status", "totalCents"]
+        }
+      }
+    },
+    "required": ["items"]
+  },
+  "annotations": {"title": "Search orders", "readOnlyHint": true}
+}
+```
+
+`$tenant` isn't an argument: the `X-Tenant` header of the agent's `/mcp` request is passed to the endpoint. `#[RequestParam]` only takes scalars, so `status` is a string; list the allowed values in the `@param` text.
+
+### Request body, `ResponseEntity` and adjusted hints
+
+```php
+/**
+ * @param CreateOrderRequest $order The order to create.
+ */
+#[PostMapping(path: '/')]
+#[McpTool(
+    description: 'Create a new order. Prices come from the catalogue; the order starts as "open". '
+        . 'Returns the created order.',
+    name: 'create_order',
+    title: 'Create order',
+    outputType: OrderDto::class,
+    destructive: false,
+)]
+public function create(#[RequestBody] CreateOrderRequest $order): ResponseEntity { /* ... */ }
+```
+
+```json
+{
+  "name": "create_order",
+  "title": "Create order",
+  "description": "Create a new order. Prices come from the catalogue; the order starts as \"open\". Returns the created order.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "order": {"$ref": "#/$defs/CreateOrderRequest", "description": "The order to create."}
+    },
+    "required": ["order"],
+    "additionalProperties": false,
+    "$defs": {
+      "CreateOrderRequest": {
+        "type": "object",
+        "properties": {
+          "customerId": {"type": "string"},
+          "lines": {
+            "type": "array",
+            "items": {"$ref": "#/$defs/OrderLineInput"},
+            "description": "At least one line.",
+            "default": []
+          },
+          "shipTo": {"$ref": "#/$defs/Address"},
+          "billTo": {
+            "anyOf": [{"$ref": "#/$defs/Address"}, {"type": "null"}],
+            "description": "Defaults to the shipping address.",
+            "default": null
+          },
+          "labels": {
+            "type": "object",
+            "additionalProperties": {"type": "string"},
+            "description": "Free-form labels, e.g. {\"channel\": \"phone\"}.",
+            "default": {}
+          },
+          "deliver_after": {
+            "type": ["string", "null"],
+            "format": "date-time",
+            "default": null
+          }
+        },
+        "required": ["customerId", "shipTo"]
+      },
+      "OrderLineInput": {
+        "type": "object",
+        "properties": {
+          "sku": {"type": "string"},
+          "quantity": {
+            "type": "integer",
+            "description": "Number of units, at least 1.",
+            "default": 1
+          }
+        },
+        "required": ["sku"]
+      },
+      "Address": {
+        "type": "object",
+        "properties": {
+          "street": {"type": "string", "description": "Street and house number."},
+          "city": {"type": "string"},
+          "country": {
+            "type": "string",
+            "description": "ISO 3166-1 alpha-2 country code, e.g. \"DE\"."
+          },
+          "postcode": {"type": ["string", "null"], "default": null}
+        },
+        "required": ["street", "city", "country"]
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "id": {"type": "integer"},
+      "status": {"type": "string", "enum": ["open", "paid", "refunded"]},
+      "createdAt": {"type": "string", "format": "date-time"},
+      "lines": {"type": "array", "items": {"$ref": "#/$defs/OrderLineDto"}, "default": []},
+      "shipTo": {"$ref": "#/$defs/Address"},
+      "note": {"type": ["string", "null"], "default": null}
+    },
+    "required": ["id", "status", "createdAt", "shipTo"],
+    "$defs": {
+      "OrderLineDto": {
+        "type": "object",
+        "properties": {
+          "sku": {"type": "string"},
+          "quantity": {"type": "integer"},
+          "unit_price": {"type": "integer", "description": "Unit price in cents."}
+        },
+        "required": ["sku", "quantity", "unit_price"]
+      },
+      "Address": {
+        "type": "object",
+        "properties": {
+          "street": {"type": "string", "description": "Street and house number."},
+          "city": {"type": "string"},
+          "country": {
+            "type": "string",
+            "description": "ISO 3166-1 alpha-2 country code, e.g. \"DE\"."
+          },
+          "postcode": {"type": ["string", "null"], "default": null}
+        },
+        "required": ["street", "city", "country"]
+      }
+    }
+  },
+  "annotations": {
+    "title": "Create order",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "idempotentHint": false
+  }
+}
+```
+
+The body is one argument named `order`. `POST` would mark the tool destructive; creating an order removes nothing, so `destructive: false` keeps clients from warning about data loss.
+
+### A mapping with several HTTP methods
+
+```php
+/**
+ * @param int         $id     Order number.
+ * @param string|null $reason Shown to the customer in the cancellation email.
+ */
+#[RequestMapping(path: '/{id}/cancel', method: [RequestMethod::POST, RequestMethod::PUT])]
+#[McpTool(
+    description: 'Cancel an open order and email the customer. Cancelling an order that is '
+        . 'already cancelled changes nothing. Paid orders cannot be cancelled; refund them instead.',
+    name: 'cancel_order',
+    httpMethod: RequestMethod::PUT,
+    destructive: true,
+)]
+public function cancel(
+    #[PathVariable] int $id,
+    #[RequestParam(required: false)] ?string $reason = null,
+): array { /* ... */ }
+```
+
+```json
+{
+  "name": "cancel_order",
+  "description": "Cancel an open order and email the customer. Cancelling an order that is already cancelled changes nothing. Paid orders cannot be cancelled; refund them instead.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "id": {"type": "integer", "minimum": 0, "description": "Order number."},
+      "reason": {
+        "type": ["string", "null"],
+        "description": "Shown to the customer in the cancellation email."
+      }
+    },
+    "required": ["id"],
+    "additionalProperties": false
+  },
+  "annotations": {"readOnlyHint": false, "destructiveHint": true, "idempotentHint": true}
+}
+```
+
+Without `httpMethod` the application doesn't start. `PUT` derives `destructiveHint: false`; cancelling loses state, so it was set to `true`. The method returns an undescribed `array`, which is allowed for results: the entry simply has no `outputSchema`.
+
+### Explicit schemas for inputs PHP can't describe
+
+```php
+#[Service]
+class SalesReportService
+{
+    #[McpTool(
+        description: 'Sales totals for a date range, grouped by day, product or country. '
+            . 'Each row has the group key and the total in cents.',
+        name: 'sales_report',
+        readOnly: true,
+        openWorld: false,
+        inputSchema: [
+            'type' => 'object',
+            'properties' => [
+                'groupBy' => ['type' => 'string', 'enum' => ['day', 'product', 'country']],
+                'range' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'from' => ['type' => 'string', 'format' => 'date'],
+                        'to' => ['type' => 'string', 'format' => 'date'],
+                    ],
+                    'required' => ['from', 'to'],
+                    'additionalProperties' => false,
+                ],
+                'countries' => [
+                    'type' => 'array',
+                    'items' => ['type' => 'string', 'pattern' => '^[A-Z]{2}$'],
+                    'description' => 'Only these countries (ISO codes). Empty means all.',
+                ],
+            ],
+            'required' => ['groupBy', 'range'],
+            'additionalProperties' => false,
+        ],
+        outputSchema: [
+            'type' => 'object',
+            'properties' => [
+                'rows' => [
+                    'type' => 'array',
+                    'items' => [
+                        'type' => 'object',
+                        'properties' => [
+                            'key' => ['type' => 'string'],
+                            'totalCents' => ['type' => 'integer'],
+                        ],
+                        'required' => ['key', 'totalCents'],
+                    ],
+                ],
+            ],
+            'required' => ['rows'],
+        ],
+    )]
+    public function report(string $groupBy, array $range, array $countries = []): array { /* ... */ }
+}
+```
+
+The `tools/list` entry carries both schemas exactly as written. `$range` and `$countries` are untyped arrays, so without `inputSchema` the application wouldn't start. `pattern` and `format` aren't enforced: validate dates and country codes in the method. Often a DTO (`ReportRange $range`) and `@param list<string> $countries` are simpler than an explicit schema.
+
+### Service tool with enums, lists and injected values
+
+```php
+#[Service]
+class ShippingService
+{
+    /**
+     * @param Carrier      $carrier         The carrier that shipped the parcels.
+     * @param list<string> $trackingNumbers Up to 20 tracking numbers.
+     * @return array<string, string> Tracking number => current status text.
+     */
+    #[McpTool(
+        description: 'Get the live delivery status of parcels from the carrier.',
+        title: 'Track parcels',
+        readOnly: true,
+        openWorld: true,
+    )]
+    public function track(
+        Carrier $carrier,
+        array $trackingNumbers,
+        HttpRequest $request,
+        McpToolContext $ctx,
+    ): array {
+        if (count($trackingNumbers) > 20) {
+            throw new McpToolArgumentException('trackingNumbers: at most 20 values');
+        }
+        // ...
+    }
+}
+```
+
+```json
+{
+  "name": "shipping_track",
+  "title": "Track parcels",
+  "description": "Get the live delivery status of parcels from the carrier.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "carrier": {
+        "type": "string",
+        "enum": ["Dhl", "Ups", "Fedex"],
+        "description": "The carrier that shipped the parcels."
+      },
+      "trackingNumbers": {
+        "type": "array",
+        "items": {"type": "string"},
+        "description": "Up to 20 tracking numbers."
+      }
+    },
+    "required": ["carrier", "trackingNumbers"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "additionalProperties": {"type": "string"},
+    "description": "Tracking number => current status text."
+  },
+  "annotations": {"title": "Track parcels", "readOnlyHint": true, "openWorldHint": true}
+}
+```
+
+`HttpRequest` is the agent's `/mcp` request and `McpToolContext` holds the tool name and request id; neither is an argument. Service tools are assumed to change data, so read-only ones set `readOnly: true`.
+
+### A recursive result
+
+```php
+#[Service]
+class CatalogService
+{
+    #[McpTool(
+        description: 'The full product category tree. Use the slugs as category filters.',
+        name: 'category_tree',
+        readOnly: true,
+        openWorld: false,
+    )]
+    public function tree(): CategoryNode { /* ... */ }
+}
+```
+
+```json
+{
+  "name": "category_tree",
+  "description": "The full product category tree. Use the slugs as category filters.",
+  "inputSchema": {"type": "object", "properties": {}, "additionalProperties": false},
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "slug": {"type": "string"},
+      "label": {"type": "string"},
+      "children": {"type": "array", "items": {"$ref": "#"}, "default": []}
+    },
+    "required": ["slug", "label"]
+  },
+  "annotations": {"readOnlyHint": true, "openWorldHint": false}
+}
+```
+
+## Errors the Agent Sees
+
+| Situation | Text of the `isError` result |
+| --- | --- |
+| an argument doesn't match the schema | the path and expected type, e.g. `order.lines[0].quantity: expected integer` |
+| the method throws `McpToolArgumentException` | its message |
+| the endpoint answers 4xx (except 401/403) | `HTTP 400 Bad Request` and the response body (cut at 4000 bytes) |
+| a service method throws an `HttpRestException` with a 4xx status | its message |
+| 401/403, `McpToolDeniedException`, or a `McpToolInterceptor` refuses | `not permitted` |
+| 5xx, any other exception, a result that breaks its schema | `internal error` (details only in the log) |
+
+Throw `McpToolArgumentException` (namespace `dev\winterframework\mcp\exception`) for problems the model can fix, such as a value out of range. Its message goes to the model, so keep secrets and large inputs out of it.
+
+## Authentication
+
+MCP doesn't add its own login. Tool calls are authenticated by the **same mechanisms your app already uses**, with no MCP-specific code: `HandlerInterceptor` and `ControllerInterceptor`.
+
+<Aside type="caution">
+  Nothing protects `/mcp` by default. An app without interceptors serves `/mcp` unauthenticated, exactly like its other routes.
+</Aside>
+
+### How the agent's credentials travel
+
+The agent sends credentials as ordinary HTTP headers on its `/mcp` requests. For Claude Code:
+
+```bash
+claude mcp add --transport http orders https://orders.example.com/mcp \
+    --header "Authorization: Bearer <token>"
+```
+
+For a REST tool, Winter Boot copies the agent's headers (`Authorization`, `X-Api-Key`, your own headers) and cookies onto the in-process request to your endpoint. Your checks therefore read them exactly as they do for a browser.
+
+### Step 1: protect `/mcp` with your `HandlerInterceptor`
+
+Register your existing authentication interceptor for a pattern that also matches `/mcp`:
+
+```php title="WebConfig.php"
+<?php
+
+namespace App\Config;
+
+use App\Security\ApiKeyInterceptor;
+use dev\winterframework\core\web\config\InterceptorRegistry;
+use dev\winterframework\core\web\config\WebMvcConfigurer;
+use dev\winterframework\stereotype\Configuration;
+
+#[Configuration(name: 'webMvcConfigurer')]
+class WebConfig implements WebMvcConfigurer
+{
+    public function addInterceptors(InterceptorRegistry $registry): void
+    {
+        // Your REST API and the MCP endpoint
+        $registry->addInterceptor(new ApiKeyInterceptor(), '^\/api\/', '^\/mcp');
+    }
+}
+```
+
+```php title="ApiKeyInterceptor.php"
+<?php
+
+namespace App\Security;
+
+use dev\winterframework\core\web\HandlerInterceptor;
+use dev\winterframework\web\http\HttpRequest;
+use dev\winterframework\web\http\HttpStatus;
+use dev\winterframework\web\http\ResponseEntity;
+
+class ApiKeyInterceptor implements HandlerInterceptor
+{
+    public function preHandle(HttpRequest $request, ResponseEntity $response): bool
+    {
+        if (!$this->isValid($request->getFirstHeader('Authorization'))) {
+            $response->withStatus(HttpStatus::$UNAUTHORIZED);   // always set the status when refusing
+            return false;
+        }
+        return true;
+    }
+
+    public function postHandle(HttpRequest $request, ResponseEntity $response): void
+    {
+    }
+
+    public function afterCompletion(HttpRequest $request, ResponseEntity $response, ?\Throwable $ex = null): void
+    {
+    }
+
+    private function isValid(?string $authorization): bool { /* ... */ }
+}
+```
+
+A refused `/mcp` request gets `401` before any MCP code runs, so an unauthenticated agent can't even list the tools.
+
+### Step 2: your endpoint checks keep working
+
+A REST tool is called through the normal pipeline, so every check on the endpoint runs again on the in-process request:
+
+| Your existing check | Runs for the tool call? |
+| --- | --- |
+| `HandlerInterceptor` whose pattern matches the endpoint (`'^\/api\/'`) | yes, with the agent's headers |
+| `ControllerInterceptor` implemented by the controller | yes, before the method |
+| AOP on the controller method | yes |
+| checks inside the method itself | yes |
+
+For example, a controller that guards itself:
+
+```php title="AdminController.php"
+#[RestController]
+#[RequestMapping(path: '/api/admin')]
+class AdminController implements ControllerInterceptor
+{
+    public function preHandle(HttpRequest $request, ResponseEntity $response, ReflectionMethod $handler): bool
+    {
+        if (!$this->isAdmin($request)) {
+            $response->withStatus(HttpStatus::$FORBIDDEN);
+            return false;
+        }
+        return true;
+    }
+
+    public function postHandle(HttpRequest $request, ResponseEntity $response, ReflectionMethod $handler): void
+    {
+    }
+
+    #[GetMapping(path: '/stats')]
+    #[McpTool(description: 'Order statistics for administrators.')]
+    public function stats(): array { /* ... */ }
+}
+```
+
+An agent whose credentials aren't an admin's gets `not permitted`, and `stats()` never runs.
+
+<Aside type="caution">
+  **Set the status when you refuse.** The agent learns about a refusal from the status code: `401` and `403` become `not permitted`, and other 4xx codes are reported with the response body. An interceptor that returns `false` without setting a status leaves the response at `200` with an empty body, which is what a browser gets today too. The method doesn't run, but the agent sees a **successful** call returning `ok`.
+</Aside>
+
+### Step 3: service tools
+
+A tool on a `#[Service]` or `#[Component]` method has no endpoint of its own, so step 2 doesn't apply: only the interceptors on `/mcp` (step 1) protect it. For per-tool rules, such as "read-only keys may not call write tools", use a `McpToolInterceptor` (below). To read the caller's credentials inside the method, declare an `HttpRequest` parameter: it is the agent's `/mcp` request.
+
+### Good to know
+
+- **Interceptors run twice for REST tools:** once for `/mcp` and once for the endpoint. A rate limiter can skip the second pass with `$request instanceof \dev\winterframework\web\http\InternalHttpRequest`.
+- **Context path:** write patterns without `server.context-path` (`'^\/api\/'`, not `'^\/svc\/api\/'`). Routes also answer without the prefix, and a prefixed pattern doesn't match those requests.
+- **Browsers:** a request with an `Origin` header is refused (`403`) unless that exact origin is in `winter.mcp.allowedOrigins`. This blocks DNS-rebinding attacks from web pages. Desktop and CLI clients send no `Origin`.
+- **Logs** name the tool, the outcome and the duration, never arguments, results or headers.
+
+### Per-tool rules with `McpToolInterceptor`
+
+Implement `dev\winterframework\mcp\McpToolInterceptor` on a `#[Component]` to hide tools, refuse calls or audit them. All implementations are applied, in class-name order.
+
+```php title="ReadOnlyKeyGuard.php"
+<?php
+
+namespace App\Security;
+
+use dev\winterframework\mcp\exception\McpToolDeniedException;
+use dev\winterframework\mcp\McpToolContext;
+use dev\winterframework\mcp\McpToolDefinition;
+use dev\winterframework\mcp\McpToolInterceptor;
+use dev\winterframework\stereotype\Component;
+use dev\winterframework\web\http\HttpRequest;
+
+#[Component]
+class ReadOnlyKeyGuard implements McpToolInterceptor
+{
+    public function isVisible(McpToolDefinition $tool, HttpRequest $request): bool
+    {
+        // Read-only keys don't even see write tools.
+        return $tool->readOnly || $this->canWrite($request);
+    }
+
+    public function beforeCall(McpToolDefinition $tool, McpToolContext $ctx): void
+    {
+        if (!$tool->readOnly && !$this->canWrite($ctx->getRequest())) {
+            throw new McpToolDeniedException('read-only API key');   // logged; the model sees "not permitted"
+        }
+    }
+
+    public function afterCall(McpToolDefinition $tool, McpToolContext $ctx, ?\Throwable $error): void
+    {
+    }
+
+    private function canWrite(HttpRequest $request): bool { /* ... */ }
+}
+```
+
+A hidden tool answers `tools/call` exactly like an unknown one.
+
+## Configuration
+
+All keys are optional:
+
+```yaml title="application.yml"
+winter:
+    mcp:
+        path: /mcp                    # relative to server.context-path
+        serverName: Order Service     # default: winter.application.name
+        instructions: "Start with search_orders."
+        allowedOrigins: [ "https://inspector.example" ]
+        maxBodyBytes: 1048576
+```
+
+With `server.context-path: /svc` the endpoint is `/svc/mcp`. The server version reported to clients is `winter.application.version`. See the [application.yml reference](/winter-boot/reference/application-yml).
+
+## Protocol Details
+
+- Transport: Streamable HTTP, stateless, plain JSON responses. No sessions and no server-sent events (`GET` returns `405`).
+- Protocol versions `2025-11-25`, `2025-06-18` and `2025-03-26`. An unknown requested version gets `2025-11-25`, and an unsupported `MCP-Protocol-Version` header gets `400`.
+- Supported methods: `initialize`, `ping`, `tools/list`, `tools/call`. Notifications get `202`. JSON-RPC batches get `400`.
+- Requests must be `Content-Type: application/json`. An `Accept` header, when sent, must allow JSON. Bodies over `maxBodyBytes` get `413`.
+- Metrics: `mcp_tool_calls` (labels `tool`, `outcome`) and `mcp_tool_duration` (label `tool`), next to `http_request_duration`.
+- Resources, prompts, progress notifications and cancellation aren't supported yet.
+
+## Startup Errors
+
+| Mistake | Fix |
+| --- | --- |
+| no `description` and no PHPDoc summary | add one |
+| invalid or duplicate tool name | set a unique `name` |
+| method is static, private, abstract or a constructor | use a public instance method |
+| class isn't a `#[RestController]`, `#[Service]` or `#[Component]` | move the method or add the attribute |
+| `#[RestController]` method without a request mapping | add the mapping, or move it to a service |
+| mapping with several methods and no `httpMethod`; `httpMethod` not in the mapping or on a service | fix `httpMethod` |
+| untyped `array`, `mixed` or `object` argument | add a PHPDoc type, use a DTO, or set `inputSchema` |
+| abstract DTO, or DTOs nested deeper than 8 levels | use concrete, flatter DTOs or an explicit schema |
+| `inputSchema` that doesn't match the arguments; a schema override whose top level isn't an object | align it with the signature |
+| `outputSchema` together with `outputType`, or `outputType` on a method returning a DTO | keep one |
+| `readOnly: true` with `destructive: true` or `idempotent: false` | remove the contradiction |
+| variadic parameter, or a `ResponseEntity` parameter on a service tool | change the signature |
+| another route already uses the MCP path | set `winter.mcp.path` |

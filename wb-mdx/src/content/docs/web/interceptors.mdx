@@ -2,6 +2,7 @@
 title: "HTTP Interceptors: Pre- and Post-Processing in Winter Boot"
 sidebar:
   label: "Interceptors"
+  order: 4
 description: "Intercept HTTP requests in Winter Boot using ControllerInterceptor for per-controller scope and HandlerInterceptor for application-wide URI matching."
 ---
 
@@ -278,6 +279,16 @@ public function addInterceptor(HandlerInterceptor $interceptor, string ...$regex
 </Aside>
 
 Patterns are tested against the request URI as sent **and** against its normalized form (repeated slashes collapsed), the same form routing uses. A request for `//admin/users` therefore still passes through an `'^\/admin'` interceptor before it reaches the `admin/users` route. The URI includes the context path, if one is configured.
+
+## Interceptors and MCP Tools
+
+A REST endpoint exposed as an [MCP tool](/winter-boot/web/mcp-tools) is called through the normal pipeline, so `HandlerInterceptor`s run twice per tool call: once for the agent's `POST /mcp` request and once for the in-process request to the endpoint. The in-process request carries the agent's headers and cookies and the full URI, including `server.context-path`, so path-based rules work unchanged. An interceptor that counts requests, such as a rate limiter, can skip the in-process request:
+
+```php
+if ($request instanceof \dev\winterframework\web\http\InternalHttpRequest) {
+    return true;   // already counted for the /mcp request
+}
+```
 
 ## Execution Order
 

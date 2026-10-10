@@ -693,3 +693,7 @@ $tenantIds = $this->mt->getCachedTenantIds();
 // Get the tenant data source provider for advanced use
 $provider = $this->mt->getTenantDataSourceProvider();
 ```
+
+## Distributed Locking
+
+`DbalLockManager` (`dev\winterframework\doctrine\lock`) makes `#[Lockable]` exclusive across all pods, with locks kept in your database, through a Doctrine DBAL connection. It needs Winter Boot 2.1.6 or later. See [Locking](/winter-boot/ops/locking#distributed-locking) for setup and behavior.

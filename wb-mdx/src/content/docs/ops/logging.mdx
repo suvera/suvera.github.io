@@ -2,6 +2,7 @@
 title: "Configure Structured Logging in Your Winter Boot App"
 sidebar:
   label: "Logging"
+  order: 4
 description: "Log from any class with the Wlf4p trait, trace HTTP requests, and tune Monolog handlers and per-class log levels in logger.yml."
 ---
 
@@ -67,6 +68,22 @@ class OrderService
     }
 }
 ```
+
+
+## What the Framework Logs for Request Errors
+
+Winter Boot separates errors your server should fix from errors the client caused (since 2.1.6):
+
+| Situation | Level | Stack trace |
+| --- | --- | --- |
+| a controller throws an exception that becomes a 5xx | `ERROR` | yes |
+| a controller throws `HttpRestException` with a 4xx status | `INFO`: status and route only (the exception message is app text and may contain request data, so it isn't logged) | no |
+| a query parameter or request body can't be converted, e.g. `limit=abc` for an `int` (answered 400) | `DEBUG`, e.g. `Parameter "limit": Cannot assign a value of type string to type "int"` | no |
+| no route matches the URL (404) | `INFO` | no |
+| `#[Transactional]` begins or commits a transaction | `DEBUG` | no |
+| a `#[Transactional]` method throws | `INFO`: one line saying whether the transaction rolled back. The exception itself is reported by whoever handles it | no |
+
+To see the DEBUG lines for one area, raise its level in `logger.yml`, for example `dev\winterframework\core\web: DEBUG` under `custom_level`.
 
 ## Request Trace Logging
 

@@ -199,3 +199,7 @@ Besides the templates, the Redis module provides:
 - **`RedisSessionStore`** — store user sessions in Redis. See [Sessions](/winter-boot/core/request-sessions#redis-sessions).
 - **`AsyncRedisQueueStore`** — a persistent queue for `#[Async]` calls. See [Async Tasks](/winter-boot/async/async-tasks#queue-storage).
 - **Reliable queue** (`RedisQueueService`) — Redis Streams with consumer workers, redelivery, and dead-letter routing. See the [Redis queue example](/winter-boot/examples/redis-queue).
+
+## Distributed Locking
+
+`RedisLockManager` (`dev\winterframework\data\redis\lock`) makes `#[Lockable]` exclusive across all pods, with locks kept in Redis. It needs Winter Boot 2.1.6 or later. See [Locking](/winter-boot/ops/locking#distributed-locking) for setup and behavior.

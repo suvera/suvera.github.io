@@ -2,26 +2,31 @@
 title: "Prevent Race Conditions with Winter Boot Distributed Locking"
 sidebar:
   label: "Locking"
-description: "Use the #[Lockable] attribute so only one caller runs a bean method at a time — on one node out of the box, or across a cluster with your own LockManager."
+  order: 3
+description: "Use the #[Lockable] attribute so only one caller runs a bean method at a time: on one node out of the box, or across a cluster with the built-in database or Redis lock managers."
 ---
 
 import { Aside, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
 
-Annotate a public bean method with `#[Lockable]` and only one caller can run it at a time — on the local node by default, or across a whole cluster when you provide a distributed `LockManager`. Placeholders such as `name: "order-#{id}"` narrow the lock to one resource, so calls for unrelated resources still run in parallel.
+Annotate a public bean method with `#[Lockable]` and only one caller can run it at a time: on the local node by default, or across a whole cluster with a distributed `LockManager` (database, Doctrine or Redis, all built in). Placeholders such as `name: "order-#{id}"` narrow the lock to one resource, so calls for unrelated resources still run in parallel.
 
 ## #[Lockable] Options
 
 - **`name`** `string` (required)
   Unique name for the lock. Supports `#{param}` interpolation to bind method parameters into the lock name (e.g. `"order-#{id}"`).
 
-- **`lockManager`** `string` (default: `Framework default`)
-  Bean name of a class implementing `LockManager`. Omit to use local node locking.
+- **`lockManager`** `string` (default: the framework's local manager)
+  Bean name of your `LockManager` bean (e.g. `'dbLockManager'`), or the class name of a `LockManager` bean. Omit to use local node locking.
 
 - **`waitMilliSecs`** `int` (default: `0`)
-  How long (in milliseconds) to wait for the lock before failing. `0` means fail immediately if the lock is not available.
+  How long (in milliseconds) to wait for the lock before throwing `LockException`. `0` means fail immediately if the lock is not available. Inside a coroutine, only the waiting coroutine pauses; the worker keeps serving other requests.
 
 - **`ttlSeconds`** `int` (default: `0`)
-  Maximum time (in seconds) the lock is held before it is automatically released. `0` means no TTL limit.
+  For distributed locks, how long (in seconds) the lock stays held before it expires on its own, for example when the holding pod crashed. `0` means no expiry. Local locks ignore it: the OS releases them when the holder dies.
+
+<Aside type="note">
+Before 2.1.6, `waitMilliSecs` was ignored, a bean name in `lockManager` failed at startup, and concurrent requests in the same worker could both enter a method guarded by the default local lock. All three are fixed in 2.1.6.
+</Aside>
 
 ## Local Node Locking
 
@@ -63,49 +68,213 @@ Always set `ttlSeconds` for distributed locks. Without it, a crashed process can
 
 ## Distributed Locking
 
-For deployments with multiple nodes you need a `LockManager` backed by a shared store so that locks are visible across the entire cluster. Provide a bean that implements `LockManager`, pass its bean name to the `lockManager` option, and the `#[Lockable]` attribute works identically to local locking from your code's perspective.
+When several pods or servers run the same application, a local lock only protects one of them. A distributed `LockManager` keeps locks in a store all of them share. Register one as a bean, name it in `lockManager`, and `#[Lockable]` works exactly as before.
 
-Winter Boot does not ship a distributed `LockManager`; you implement the interface (`dev\winterframework\util\concurrent\LockManager`) on top of a shared store such as Redis or your database. The Symfony Lock component is a convenient base, as shown below.
+Winter Boot ships three:
 
-<Steps>
+| Manager | Store | Where |
+| --- | --- | --- |
+| `PdoLockManager` | a table in your database (PostgreSQL, MySQL/MariaDB, SQLite) | Winter Boot core |
+| `DbalLockManager` | a table, through Doctrine DBAL (any database DBAL supports) | `winter-doctrine` |
+| `RedisLockManager` | one Redis key per lock | `winter-data-redis` (Winter Modules) |
 
-1. **Annotate the method with a named lockManager**
+All three need Winter Boot 2.1.6 or later.
 
-   ```php title="OrderService.php"
-   use dev\winterframework\stereotype\concurrent\Lockable;
+<Tabs>
+  <TabItem label="Database (PDO)">
 
-   #[Lockable(name: 'order-#{id}', lockManager: 'redisLockManager')]
-   public function updateOrderStatus(int $id): void
-   {
-       // No two processes across the cluster can run this for the same $id.
-   }
-   ```
+```php title="LockConfig.php"
+use dev\winterframework\pdbc\DataSource;
+use dev\winterframework\pdbc\lock\PdoLockManager;
+use dev\winterframework\stereotype\Bean;
+use dev\winterframework\stereotype\Configuration;
+use dev\winterframework\util\concurrent\LockManager;
 
-1. **Register the LockManager bean**
+#[Configuration]
+class LockConfig
+{
+    #[Bean('dbLockManager')]
+    public function dbLockManager(DataSource $dataSource): LockManager
+    {
+        return new PdoLockManager($dataSource);   // table "winter_locks", created on first use
+    }
+}
+```
 
-   ```php title="LockConfig.php"
-   use dev\winterframework\stereotype\Configuration;
-   use dev\winterframework\stereotype\Bean;
-   use dev\winterframework\util\concurrent\LockManager;
+`DataSource` is the primary data source. For another one, inject it by name: `#[Autowired('admindb')] private DataSource $adminDs;`.
 
-   #[Configuration]
-   class LockConfig
-   {
-       #[Bean('redisLockManager')]
-       public function getRedisLockManager(): LockManager
-       {
-           // Construct and return your LockManager implementation.
-           // E.g. wrap a Symfony RedisStore inside an adapter.
-           return new MyRedisLockManager();
-       }
-   }
-   ```
+  </TabItem>
+  <TabItem label="Doctrine (DBAL)">
 
-</Steps>
+```php title="LockConfig.php"
+use dev\winterframework\doctrine\lock\DbalLockManager;
+use dev\winterframework\stereotype\Autowired;
+use dev\winterframework\stereotype\Bean;
+use dev\winterframework\stereotype\Configuration;
+use dev\winterframework\util\concurrent\LockManager;
+use Doctrine\DBAL\Connection;
 
-<Aside type="note">
-The Symfony Lock component supports Redis, Memcached, PDO/DBAL databases, ZooKeeper, Consul, and more — all of which can be adapted to the Winter Boot `LockManager` interface.
-</Aside>
+#[Configuration]
+class LockConfig
+{
+    #[Autowired('admindb-doctrine-dbal')]
+    private Connection $adminDbal;
+
+    #[Bean('dbLockManager')]
+    public function dbLockManager(): LockManager
+    {
+        return new DbalLockManager($this->adminDbal);
+    }
+}
+```
+
+  </TabItem>
+  <TabItem label="Redis">
+
+```php title="LockConfig.php"
+use dev\winterframework\data\redis\lock\RedisLockManager;
+use dev\winterframework\data\redis\phpredis\PhpRedisTemplate;
+use dev\winterframework\stereotype\Bean;
+use dev\winterframework\stereotype\Configuration;
+use dev\winterframework\util\concurrent\LockManager;
+
+#[Configuration]
+class LockConfig
+{
+    #[Bean('redisLockManager')]
+    public function redisLockManager(PhpRedisTemplate $redis): LockManager
+    {
+        return new RedisLockManager($redis);   // keys "winter:lock:<name>"
+    }
+}
+```
+
+  </TabItem>
+</Tabs>
+
+Then name the bean on the methods to protect:
+
+```php title="OrderService.php"
+#[Lockable(name: 'order-#{id}', ttlSeconds: 30, waitMilliSecs: 2000, lockManager: 'dbLockManager')]
+public function settle(int $id): void
+{
+    // Runs on one pod at a time for each order id.
+}
+```
+
+### How the built-in managers behave
+
+- **Every caller gets its own lock handle** with a random owner token, so two coroutines, workers or pods never both hold a name, and only the holder can release or extend it.
+- **Database locks** are rows in `winter_locks` (`lock_name` primary key, `owner`, `expires_at` in epoch milliseconds, `0` = no expiry). Names longer than 191 bytes are stored as a hash. The PDO and DBAL managers use the same layout, so they can share the table.
+- **Database locks commit at once, outside your transaction.** Each lock statement runs on its own pooled connection, so a lock taken inside a `#[Transactional]` method is visible to other pods immediately, and rolling back your transaction doesn't undo it. A plain Doctrine `Connection` that is inside a transaction is refused instead, because the lock would stay invisible until that transaction commits.
+- **Redis locks** are one key per lock (`SET NX` plus `PX` for the TTL). Each operation is a single Lua script, so it is atomic. Use a single, Sentinel or Cluster template, not `PhpRedisArrayTemplate`.
+- **Expiry:** Redis expires locks with its own clock. The database managers compare times from the application servers, so keep their clocks in sync (NTP).
+- **Unreachable store:** taking a lock throws, and the method doesn't run unprotected.
+- **Waiting:** while `waitMilliSecs` lasts, the managers retry every 50 ms (constructor argument `pollMs`).
+
+Constructor arguments:
+
+```php
+new PdoLockManager(DataSource $dataSource, string $table = 'winter_locks', bool $createTable = true, int $pollMs = 50);
+new DbalLockManager(Connection $connection, string $table = 'winter_locks', bool $createTable = true, int $pollMs = 50);
+new RedisLockManager(object $redis, string $prefix = 'winter:lock:', int $pollMs = 50);
+```
+
+`PdoLockManager` creates its table with `CREATE TABLE IF NOT EXISTS`, which PostgreSQL, MySQL/MariaDB and SQLite support. For another database, create the table yourself (the SQL is returned by `getCreateTableSql()` on `PdoLockStore`) and pass `createTable: false`. `DbalLockManager` creates it with your platform's own types, on any database.
+
+<details>
+<summary>Table DDL for <code>winter_locks</code> (SQLite, PostgreSQL, MySQL/MariaDB, SQL Server, Oracle)</summary>
+
+Create the table yourself when the application's database user may not create tables, then pass `createTable: false`. One table can serve the PDO and the DBAL manager. If you pass another `$table` name, use it here too.
+
+**SQLite**
+
+```sql
+CREATE TABLE IF NOT EXISTS winter_locks (
+    lock_name  VARCHAR(191) NOT NULL PRIMARY KEY,
+    owner      VARCHAR(64)  NOT NULL,
+    expires_at BIGINT       NOT NULL
+);
+```
+
+**PostgreSQL**
+
+```sql
+CREATE TABLE IF NOT EXISTS winter_locks (
+    lock_name  VARCHAR(191) NOT NULL PRIMARY KEY,
+    owner      VARCHAR(64)  NOT NULL,
+    expires_at BIGINT       NOT NULL
+);
+```
+
+**MySQL / MariaDB**
+
+```sql
+CREATE TABLE IF NOT EXISTS winter_locks (
+    lock_name  VARCHAR(191) NOT NULL PRIMARY KEY,
+    owner      VARCHAR(64)  NOT NULL,
+    expires_at BIGINT       NOT NULL
+) ENGINE = InnoDB;
+```
+
+`VARCHAR(191)` keeps the primary key within InnoDB's index limit with `utf8mb4`. Longer lock names are stored as a SHA-256 hash, so they still fit.
+
+**SQL Server** (`DbalLockManager` only)
+
+```sql
+CREATE TABLE winter_locks (
+    lock_name  NVARCHAR(191) NOT NULL,
+    owner      NVARCHAR(64)  NOT NULL,
+    expires_at BIGINT        NOT NULL,
+    PRIMARY KEY (lock_name)
+);
+```
+
+**Oracle** (`DbalLockManager` only)
+
+```sql
+CREATE TABLE winter_locks (
+    lock_name  VARCHAR2(191) NOT NULL,
+    owner      VARCHAR2(64)  NOT NULL,
+    expires_at NUMBER(20)    NOT NULL,
+    PRIMARY KEY (lock_name)
+);
+```
+
+Columns: `lock_name` is the lock's name, `owner` the random token of the handle holding it, and `expires_at` the expiry time in epoch milliseconds (`0` = no expiry). A row exists only while its lock is held or until it expires, so the table stays small; rows of expired locks are reused when the name is locked again.
+
+</details>
+
+### Extending a lock during long work
+
+`ttlSeconds` should cover the method's normal run time. For longer jobs, extend the lease while you work: `$lockManager->updateLock($name, 30)` restarts the 30-second TTL. If the lease was already lost (it expired and another pod took the lock), `update()` on the lock throws `LockException`, so the job can stop instead of continuing unprotected.
+
+### Your own store
+
+To lock in another store, implement `dev\winterframework\util\concurrent\LockStore` (three atomic operations) and wrap it in a `StoreLockManager`:
+
+```php title="EtcdLockStore.php"
+use dev\winterframework\util\concurrent\LockStore;
+
+class EtcdLockStore implements LockStore
+{
+    // Take the lease if it is free or expired. $ttlMs = 0 means no expiry.
+    public function acquire(string $name, string $owner, int $ttlMs): bool { /* ... */ }
+
+    // End the lease, only if $owner holds it.
+    public function release(string $name, string $owner): bool { /* ... */ }
+
+    // Restart the TTL, only if $owner holds it.
+    public function refresh(string $name, string $owner, int $ttlMs): bool { /* ... */ }
+}
+
+// In a #[Configuration] class:
+#[Bean('etcdLockManager')]
+public function etcdLockManager(): LockManager
+{
+    return new StoreLockManager(new EtcdLockStore(/* ... */));
+}
+```
 
 ## Handling LockException
 

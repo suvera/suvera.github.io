@@ -163,6 +163,28 @@ class AppConfig
   `#[Value]` works on properties in any managed bean — `#[Service]`, `#[Component]`, `#[RestController]`, `#[Configuration]`, and so on. You do not need a dedicated config class.
 </Aside>
 
+### Type conversion
+
+Values from environment variables and INI files are strings, so `#[Value]` converts them to the property's type by meaning (since 2.1.6). The same rules apply to `defaultValue`.
+
+| Property type | Accepted values |
+| --- | --- |
+| `bool` | `true`, `false`, `yes`, `no`, `on`, `off`, `1`, `0` (any case, trimmed); an empty string is `false` |
+| `int` | whole numbers such as `8080`, `-3`, `007` |
+| `float` | any number, such as `0.25` |
+| `string` | any value; numbers and booleans become their text |
+| nullable (`?bool`, `?int`, ...) | also `null` in any case, which sets `null` |
+
+A value that doesn't fit, such as `FEATURE_ENABLED=maybe` for a `bool` or `PORT=80a` for an `int`, stops the application at startup. The error names the key, the class and property, and where to fix it, but never the value itself, because configuration can hold secrets:
+
+```text
+Invalid value for config property #[Value] "${feature.enabled}" on com\example\myapp\AppConfig::$enabled (bool):
+expected a boolean (true/false, yes/no, on/off, 1/0); fix "feature.enabled" in application.yml, or in the
+$env/$ini/property source it points to
+```
+
+When the key is missing, the attribute's `defaultValue` is used, otherwise the property's own PHP default. A required property without either stops startup.
+
 ## Programmatic Bean Configuration
 
 For beans that need construction logic — typically third-party clients that are not Winter Boot beans themselves — use a `#[Configuration]` class. Each `#[Bean]` method is called once and its return value is registered as a managed bean. Method parameters that are typed as other beans are injected automatically.
