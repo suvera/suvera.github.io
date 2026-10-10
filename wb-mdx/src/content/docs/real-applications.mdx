@@ -1,0 +1,80 @@
+---
+title: "Real Applications Built with Winter Boot"
+sidebar:
+  label: "Real Applications"
+description: "Production applications built with Winter Boot: Snowprint web analytics, the Examplar exam management system, and the SignalForge market research platform."
+---
+
+import { Aside, Card, LinkButton } from '@astrojs/starlight/components';
+
+These applications are built as microservices with Winter Boot. Each service is a small `#[WinterBootApplication]` with its own configuration and deployment, and services share code through common beans and libraries. Each one runs a live service you can try.
+
+## Snowprint Analytics
+
+<Card title="Snowprint: privacy-first web analytics" icon="seti:php">
+  Self-hosted, cookie-less web analytics with a built-in MCP server, so Claude or any MCP client can query your traffic. It runs as one PHP container plus PostgreSQL, and no cookies, IP addresses, or user agents are stored. Visitors are identified with a hash whose salt rotates every 24 hours.
+
+  <LinkButton href="https://snowprint.suvera.xyz/ui" icon="external" variant="primary">Live service</LinkButton>
+  <LinkButton href="https://github.com/suvera/snowprint-analytics" icon="github" variant="secondary">Source on GitHub</LinkButton>
+</Card>
+
+Snowprint ships one image that runs as three services, `web`, `ingest`, and `worker`. Run them together in one process, or scale each one independently. The difference is configuration, not code. Here is how its needs map to Winter Boot features:
+
+| Snowprint needs | Winter Boot provides |
+| --- | --- |
+| Tracking, dashboard, and MCP endpoints | `#[RestController]`, `#[GetMapping]`, `#[PostMapping]` |
+| Batched event writes | Swoole worker start/stop hooks for a per-worker buffer, `PdbcTemplate` multi-row inserts |
+| Sessions, daily rollups, retention, salt rotation | `#[Scheduled]` jobs |
+| Dashboard sign-in | Coroutine-safe `SessionManager` with `PdbcSessionStore` |
+| Operator API and request guards | `HandlerInterceptor` in a `WebMvcConfigurer` |
+| Zero-touch upgrades | Built-in SQL migrator |
+| Health checks and metrics | Actuator (`#[HealthInformer]`), Prometheus registry |
+| One image, three roles (`web`, `ingest`, `worker`) | One `#[WinterBootApplication]` starter per role, sharing beans |
+
+In its benchmark, Snowprint stores about 9,900 events per second on 2 CPUs and about 19,800 on 4 CPUs, with every accepted event persisted. The live instance runs on Kubernetes and tracks traffic for this documentation site.
+
+## Examplar
+
+<Card title="Examplar: online exam management" icon="seti:php">
+  An online exam management system with a student exam flow (sign in, start an exam, answer, finish) and an admin console for managing subjects, papers, questions, and students. Admins can generate exam questions with an LLM.
+
+  <LinkButton href="https://exampler.suvera.xyz/" icon="external" variant="primary">Live service</LinkButton>
+  <LinkButton href="https://github.com/suvera/exms" icon="padlock" variant="secondary">Private repository</LinkButton>
+</Card>
+
+Examplar is split into microservices that share one library:
+
+| Service | Role |
+| --- | --- |
+| `apps/api` | Student backend: sign-in, exam list, start, answer, and finish |
+| `apps/admin-api` | Admin backend: CRUD for subjects, papers, questions, and students, plus AI paper generation |
+| `apps/common` | Shared library: Doctrine entities, utilities, and LLM provider abstractions |
+| `apps/admin-web` | Next.js admin UI that calls the admin API |
+
+Both backends are Winter Boot applications built from `#[RestController]` endpoints, `#[Autowired]` services, `#[Configuration]` and `#[Bean]` factories, `#[Transactional]` writes, and `#[Scheduled]` and `#[Async]` background work, with [Doctrine](/winter-boot/modules/doctrine) on PostgreSQL. The LLM layer is a vendor-neutral `LlmProvider` bean. `application.yml` selects Gemini, OpenAI, Ollama, or a mock provider for tests, so the active vendor changes without code changes. Each backend ships as its own image and is deployed with Helm, with database migrations run as a pre-deploy hook.
+
+## SignalForge
+
+<Card title="SignalForge: AI-assisted market research" icon="seti:php">
+  A market prediction and research platform that combines market data, macroeconomic signals, global news, and historical analogues to generate, track, and evaluate predictions over time. It is a research and paper-trading system. It does not give investment advice or place live trades.
+
+  <LinkButton href="https://signalforge.suvera.xyz/" icon="external" variant="primary">Live website</LinkButton>
+  <LinkButton href="https://github.com/suvera/signal-forge" icon="padlock" variant="secondary">Private repository</LinkButton>
+</Card>
+
+SignalForge is a polyglot microservices system. Winter Boot runs the PHP services, alongside Python services for the machine-learning work, a Node.js crawler, and a Next.js dashboard:
+
+| Service | Role |
+| --- | --- |
+| `apps/api` | API gateway and core domain: instruments, the prediction ledger, model and experiment registries, and job triggers |
+| `apps/ingestion-market` | Ingests prices, FX, commodities, and macro data, archiving raw payloads in S3-compatible storage |
+| `apps/ingestion-news` | Ingests news and geopolitical events, with deterministic deduplication |
+| `apps/evaluation` | Resolves prediction outcomes once their horizon passes |
+| `apps/paper-trading` | Virtual portfolios, costs, and P&L for the morning and evening review loop |
+| `apps/common` | Shared library used by all PHP services |
+
+The services talk to each other through SQS queues. A Kubernetes CronJob posts a trigger to the API, the API enqueues a job, and a worker service picks it up. Each PHP service uses [Doctrine](/winter-boot/modules/doctrine) on PostgreSQL, plus the [SQS](/winter-boot/modules/sqs), [S3](/winter-boot/modules/s3), and [OpenSearch](/winter-boot/modules/opensearch) libraries, each switched on by its own config file.
+
+<Aside type="tip">
+  Building something with Winter Boot? Open an issue or pull request on [winter-boot](https://github.com/suvera/winter-boot) to have it listed here. To start your own service, follow the [Quickstart](/winter-boot/quickstart).
+</Aside>

@@ -92,6 +92,7 @@ export default defineConfig({
                 },
                 { label: 'Libraries', items: [{ autogenerate: { directory: 'modules' } }] },
                 { label: 'Examples', items: [{ autogenerate: { directory: 'examples' } }] },
+                'real-applications',
                 { label: 'How To', items: [{ autogenerate: { directory: 'howto' } }] },
                 {
                     label: 'Reference',
