@@ -14,7 +14,7 @@ Set up your machine for Winter Boot development. Pick one path — you only need
 
 ## Option A — Docker (recommended)
 
-The [`suvera/winter-boot`](https://hub.docker.com/r/suvera/winter-boot) image is built on `php:8.5-cli-alpine` and already contains `swoole`, `winter_boot`, `redis`, `rdkafka`, `pcntl`, `curl`, `zip`, and `pdo_pgsql`. It does **not** include Composer, so install your dependencies in a separate build stage using the official `composer` image:
+The [`suvera/winter-boot`](https://hub.docker.com/r/suvera/winter-boot) image is built on `php:8.5-cli-alpine` and already contains `swoole`, `winter_boot`, `redis`, `rdkafka`, `pcntl`, `curl`, `zip`, `pdo_pgsql`, `pgsql`, and the `psql` client. For MySQL use [`suvera/winter-boot-mysql`](https://hub.docker.com/r/suvera/winter-boot-mysql) instead: the same image with `pdo_mysql`, `mysqli`, and the `mysql` client in place of the PostgreSQL extensions and client. Running with `server.swoole.hook_flags: SWOOLE_HOOK_ALL`? Use the `-hookall` image of your database instead (`suvera/winter-boot-hookall` or `suvera/winter-boot-mysql-hookall`, see [Docker Deployment](/winter-boot/advanced/build-deploy#docker-deployment)). None of the images include Composer, so install your dependencies in a separate build stage using the official `composer` image:
 
 ```dockerfile title="Dockerfile"
 # Stage 1: install Composer dependencies
@@ -23,7 +23,7 @@ WORKDIR /app
 COPY composer.json composer.lock ./
 RUN composer install --no-dev --optimize-autoloader --ignore-platform-reqs
 
-# Stage 2: runtime image
+# Stage 2: runtime image (suvera/winter-boot-mysql:latest for MySQL)
 FROM suvera/winter-boot:latest
 WORKDIR /app
 COPY --from=vendor /app/vendor/ vendor/

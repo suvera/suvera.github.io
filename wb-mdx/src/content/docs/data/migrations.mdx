@@ -177,14 +177,14 @@ When `useCli: true` is set, Winter Boot selects the appropriate CLI tool based o
 Each tool is run so that the **first SQL error stops the file and fails the migration**: `psql -v ON_ERROR_STOP=1`, `sqlcmd -b`, and `WHENEVER SQLERROR EXIT` for `sqlplus`. Without these, the tools exit successfully after errors and a broken file would be recorded as applied.
 
 <Aside type="caution">
-  When using `useCli: true`, make sure the corresponding CLI binary (e.g. `psql`, `mysql`) is installed on the machine running migrations and is available on the system `PATH`.
+  When using `useCli: true`, make sure the corresponding CLI binary (e.g. `psql`, `mysql`) is installed on the machine running migrations and is available on the system `PATH`. The `suvera/winter-boot` Docker image ships `psql`; `suvera/winter-boot-mysql` ships `mysql`.
 </Aside>
 
 ---
 
 ## Directory Structure
 
-Organize migration files under a root directory with one sub-folder per datasource name. Files are executed in **alphabetical order** — use numeric or date-based prefixes to enforce a deterministic sequence.
+Organize migration files under a root directory with one sub-folder per datasource name. Files are executed in **natural order** of their relative path, so version folders run as `1.9.0/` before `1.10.0/` — use numeric or date-based prefixes to enforce a deterministic sequence.
 
 ```text
 /migrations/

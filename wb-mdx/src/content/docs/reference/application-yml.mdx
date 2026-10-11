@@ -41,6 +41,8 @@ Every key under `server.swoole` is passed to Swoole's server settings as is, exc
 
 An unknown name stops the application at startup.
 
+With `SWOOLE_HOOK_ALL`, run on the `suvera/winter-boot-hookall` or `suvera/winter-boot-mysql-hookall` Docker image (see [Docker Deployment](/winter-boot/advanced/build-deploy#docker-deployment)). In the plain images, PDO-pgsql queries still block the worker and `curl_multi` (Guzzle) crashes it.
+
 ### `winter`
 
 Framework-wide runtime settings.

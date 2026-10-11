@@ -85,7 +85,16 @@ Use [Box](https://github.com/box-project/box) to compile your application and al
 
 ### Docker Deployment
 
-Build on the official [`suvera/winter-boot`](https://hub.docker.com/r/suvera/winter-boot) base image. It is based on `php:8.5-cli-alpine` and includes `swoole`, `winter_boot`, `redis`, `rdkafka`, `pcntl`, `curl`, `zip`, `pdo_pgsql`, and the PostgreSQL client. Its `php.ini` keeps `variables_order = EGPCS`, so `$env.*` property sources work. (The image definition lives at `build/docker/Dockerfile` in the framework repository if you need to build a variant.)
+Build on the official [`suvera/winter-boot`](https://hub.docker.com/r/suvera/winter-boot) base image. It is based on `php:8.5-cli-alpine` and includes `swoole`, `winter_boot`, `redis`, `rdkafka`, `pcntl`, `curl`, `zip`, `pdo_pgsql`, `pgsql`, and the PostgreSQL client (`psql`). For MySQL, build on [`suvera/winter-boot-mysql`](https://hub.docker.com/r/suvera/winter-boot-mysql), which has `pdo_mysql`, `mysqli`, and the `mysql` client (MariaDB's) in their place, so `useCli: true` migrations work out of the box. Both images are tagged with the framework version and `latest`. Their `php.ini` keeps `variables_order = EGPCS`, so `$env.*` property sources work. (All images come from `build/docker/Dockerfile` in the framework repository, selected with `--build-arg DB=pgsql|mysql` and `--build-arg HOOK_ALL=0|1`, if you need to build a variant.)
+
+If the application sets `server.swoole.hook_flags: SWOOLE_HOOK_ALL`, build on the `-hookall` image of your database: [`suvera/winter-boot-hookall`](https://hub.docker.com/r/suvera/winter-boot-hookall) (PostgreSQL) or [`suvera/winter-boot-mysql-hookall`](https://hub.docker.com/r/suvera/winter-boot-mysql-hookall) (MySQL). They have the same extensions, but Swoole is compiled with:
+
+| Swoole build option | Image | Effect under `SWOOLE_HOOK_ALL` |
+|---|---|---|
+| `--enable-swoole-curl` | both | cURL (including `curl_multi`, which Guzzle uses) runs on the native libcurl hook. Without it Swoole emulates cURL, and `curl_multi` crashes the worker. |
+| `--enable-swoole-pgsql` | `winter-boot-hookall` | PDO-pgsql queries yield to other coroutines instead of blocking the worker (`SWOOLE_HOOK_PDO_PGSQL`). |
+
+`pdo_mysql` needs no extra option: it already yields under `SWOOLE_HOOK_ALL` in both MySQL images. With the default `hook_flags` (no hooks) the plain images are the right choice.
 
 The base image does not include Composer, so install dependencies in a separate stage:
 

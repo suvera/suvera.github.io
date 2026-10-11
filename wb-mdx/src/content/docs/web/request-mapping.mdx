@@ -77,6 +77,8 @@ class ProductController
   Path variables — for example, `{id}` — are **not** allowed in a class-level `#[RequestMapping]`. They may only appear in method-level path definitions.
 </Aside>
 
+When the class-level `path` is an array, every class path prefixes every method path: `#[RequestMapping(path: ['/v1', '/v2'])]` with `#[GetMapping(path: '/items')]` maps both `/v1/items` and `/v2/items`. An empty class path (`''` or `'/'`) maps the method path without a prefix.
+
 ## HTTP Method Shortcuts
 
 Winter Boot ships five convenience attributes that combine `#[RequestMapping]` with a fixed HTTP method. They accept the same `path`, `name`, `consumes`, and `produces` parameters, but you never need to specify `method` explicitly.
@@ -192,7 +194,7 @@ public function getUser(#[PathVariable] int $id): array
 ```
 
 <Aside type="caution">
-  Every `{placeholder}` that appears in the path **must** have a matching `#[PathVariable]` parameter, and every `#[PathVariable]` parameter must correspond to a `{placeholder}`. A mismatch raises an `InvalidSyntaxException` at startup.
+  Every `{placeholder}` that appears in the path **must** have a matching `#[PathVariable]` parameter, and every `#[PathVariable]` parameter must correspond to a `{placeholder}`. A placeholder may appear only once in a path. A mismatch or a repeated placeholder raises an `InvalidSyntaxException` at startup.
 </Aside>
 
 ## `#[RequestBody]`

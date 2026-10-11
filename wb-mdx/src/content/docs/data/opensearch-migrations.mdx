@@ -103,7 +103,7 @@ For other filenames the content decides:
 
 The resource `{name}` defaults to the file name without `.json` and without a trailing `-template`, `-policy`, or `-index` suffix, so `sf-entities-template.json` manages the `sf-entities` index (or template, or policy, depending on content). Index names are lowercased because OpenSearch requires lowercase index names.
 
-Files are executed in alphabetical order (including sub-folders such as `release-1.0/`), and the relative path is the migration identity.
+Files are executed in natural order of their relative path (including sub-folders such as `release-1.0/`; `1.9.0/` runs before `1.10.0/`), and the relative path is the migration identity.
 
 ## Idempotency
 

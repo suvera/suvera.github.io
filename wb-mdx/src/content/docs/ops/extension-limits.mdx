@@ -11,7 +11,7 @@ import { Aside } from '@astrojs/starlight/components';
 Winter Boot relies on a small set of PHP extensions. This page lists what each one is needed for and what happens when it is missing or misconfigured. The startup banner prints the detected version (or `not installed`) of Swoole, rdkafka, and redis on every boot — check it first when something extension-related misbehaves.
 
 <Aside type="tip">
-  Using the `suvera/winter-boot` Docker image? It preinstalls and enables Swoole, redis, rdkafka, and `winter_boot` (plus `pcntl`, `curl`, `zip`, and PostgreSQL drivers), so most of the missing-extension failures below cannot occur.
+  Using the `suvera/winter-boot` Docker image? It preinstalls and enables Swoole, redis, rdkafka, APCu (with `apc.enable_cli=1`), and `winter_boot` (plus `pcntl`, `curl`, `zip`, and PostgreSQL drivers), so most of the missing-extension failures below cannot occur.
 </Aside>
 
 Need anything else (for example `memcache` or `opentelemetry`)? Extend the image with your own multi-stage build rather than installing into it — that keeps the runtime image small. See the [Dockerfile](https://github.com/suvera/winter-boot/blob/master/build/docker/Dockerfile) for the builder pattern to follow.
@@ -38,7 +38,7 @@ The bundled native extension. Booting without it stops the application with a cl
 ## APCu (optional, `ApcCache` only)
 
 - `ApcCache::isEnabled()` returns `false` unless the extension is both loaded **and** enabled. Callers must check it first: the `cache()` path calls the APCu functions directly, so skipping the check without APCu fails instead of degrading.
-- APCu is commonly disabled under CLI (`apc.enable_cli`), so `isEnabled()` can be `false` in console and migration runs even when web workers cache fine. Do not assume CLI and Swoole workers see the same cache state.
+- Swoole servers run under the CLI SAPI, where APCu is off by default (`apc.enable_cli=0`), so `isEnabled()` is `false` in Swoole workers, console commands and migrations unless `apc.enable_cli=1` is set. The runtime Docker image sets it. Each process has its own APCu memory: workers of one Swoole server share it, but a separate console or migration run does not, so never use APCu as cross-process state.
 
 ## OpenTelemetry (optional, telemetry module)
 
@@ -53,4 +53,4 @@ These matter only when the corresponding module or backend is enabled; the core 
 - **memcache / memcached**: needed for the Memcache module templates. The two extensions are different client libraries — enable the one matching the configured template.
 - **rdkafka** (plus Swoole): needed for the Kafka module (producers/consumers) and the Kafka-backed DTCE queue. Without both, Kafka consumers and workers cannot start.
 
-The runtime Docker image preinstalls `redis`, `rdkafka` and `swoole` (with `pcntl`, `curl`, `zip`, PostgreSQL drivers); `memcache(d)` and `opentelemetry` are added only when the application needs them.
+The runtime Docker image preinstalls `redis`, `rdkafka`, `swoole` and `apcu` (with `pcntl`, `curl`, `zip`, PostgreSQL drivers); `memcache(d)` and `opentelemetry` are added only when the application needs them.
