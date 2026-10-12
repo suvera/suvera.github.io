@@ -20,9 +20,10 @@ browser ── static files (CDN / Nginx) ──► your SPA (React, Next.js, �
 
 One origin serves both the static bundle and the API (the proxy forwards
 `/api/*` to the app port). Same-origin means no CORS configuration, and the
-session cookie from the [RBAC guide](/winter-boot/howto/rbac) just works. The
-framework ships no CORS module, so treat cross-origin browser calls as a
-problem to avoid, not to solve.
+session cookie from the [RBAC guide](/winter-boot/howto/rbac) just works. If the
+UI must live on another origin, list it under `winter.web.cors.allowedOrigins`
+(see [CORS](/winter-boot/web/rest-controllers#cors)); the framework then answers
+the browser's preflight `OPTIONS` request for you.
 
 <CardGrid>
   <Card title="Winter Boot owns" icon="server">

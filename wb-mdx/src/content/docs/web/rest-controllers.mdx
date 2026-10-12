@@ -371,6 +371,60 @@ curl -X DELETE http://localhost:8080/users/1
 curl "http://localhost:8080/users/search?email=john@example.com"
 ```
 
+## CORS
+
+Browsers only let a page on one origin read API responses from another origin if the API opts in. Winter Boot sends no CORS headers unless you configure an origin allowlist, so by default cross-origin browser calls are blocked. Serving the UI and the API from one origin (see [Build a UI](/winter-boot/howto/build-ui)) needs none of this.
+
+```yaml
+winter:
+    web:
+        cors:
+            allowedOrigins:
+                - https://app.example.com
+                - http://localhost:5173
+            allowedHeaders: [Content-Type, Authorization]
+            exposedHeaders: [X-Total-Count]
+            allowCredentials: false
+            maxAge: 1800
+```
+
+- **Preflight.** A browser sends an `OPTIONS` request with `Origin` and `Access-Control-Request-Method` before a "non-simple" call (JSON body, `Authorization` header, `PUT`/`DELETE`). The dispatcher answers it itself, before routing, interceptors and authentication, because browsers send preflights without credentials. An allowed origin, method and header set gets `204` with the `Access-Control-Allow-*` headers; anything else gets `403` with no CORS header. You do not write `OPTIONS` routes.
+- **Actual requests.** A request from an allowed origin using an allowed method gets `Access-Control-Allow-Origin` (plus credentials and expose headers when configured) on every response, error responses included. A request from another origin (or with a method outside `allowedMethods`, which simple `GET`/`POST` requests can use without a preflight) is still served, but without those headers the browser withholds the response from the page. Every response to a request with an `Origin` header carries `Vary: Origin`.
+- **Matching.** Origins match exactly on scheme, host and port (case-insensitive); `https://app.example.com.evil.io` and `null` never match. The response carries the matched allowlist entry in lowercase (the form browsers send), not the raw request value.
+- **Credentials.** `allowedOrigins: ['*']` together with `allowCredentials: true` is refused (CORS stays off, one error is logged). List the origins explicitly when cookies or `Authorization` are involved.
+
+### Per-controller and per-route policy
+
+`#[CrossOrigin]` on a controller class or method overrides the global policy for those routes. Each field you leave out inherits the next level up: method, then class, then `winter.web.cors.*`.
+
+```php
+use dev\winterframework\stereotype\web\CrossOrigin;
+
+#[RestController]
+#[CrossOrigin(origins: ['https://partner.example.com'])]
+class ReportController {
+
+    #[GetMapping(path: '/reports')]
+    public function list(): array { /* partner.example.com only */ }
+
+    #[PostMapping(path: '/reports')]
+    #[CrossOrigin(origins: ['https://app.example.com'], allowCredentials: true, maxAge: 300)]
+    public function create(): array { /* app.example.com, with credentials */ }
+}
+```
+
+Parameters: `origins`, `methods`, `headers`, `exposedHeaders` (lists), `allowCredentials` (bool) and `maxAge` (seconds). An empty list or an omitted value inherits.
+
+- The attribute alone switches CORS on for the route, even when `winter.web.cors` is not configured. With no origin at any level (its own or global), the route sends no CORS header.
+- Like the global config, it never rejects a request. It only decides which CORS headers are sent, and a preflight from a disallowed origin gets `403`.
+- A preflight (`OPTIONS`) uses the policy of the route named by `Access-Control-Request-Method` on the same path, so list the same `origins` for every method of a path that browsers call.
+- A route inherited from a base controller runs on the base class's bean, so put `#[CrossOrigin]` on the base class or on the method. An attribute on the subclass has no effect on inherited routes.
+- `origins: ['*']` together with `allowCredentials: true` is refused for that route: CORS stays off there and an error is logged.
+
+<Aside type="caution">
+CORS is enforced by browsers only. It does not authenticate callers, and it does not stop a cross-site form POST from reaching the server. Keep CSRF protection (SameSite cookies, tokens) on cookie-authenticated endpoints.
+</Aside>
+
 ## Error Handling
 
 When a request fails (an unhandled exception, an unknown route, a bad request body), Winter Boot hands it to the `errorController` bean. The built-in `DefaultErrorController` returns a JSON error; to customize the response, implement the `dev\winterframework\core\web\error\ErrorController` interface:

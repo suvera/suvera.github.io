@@ -58,6 +58,13 @@ winter:
             enableTrace: true
         json:
             prettyPrint: false
+        cors:
+            allowedOrigins: []
+            allowedMethods: [GET, HEAD, POST, PUT, PATCH, DELETE]
+            allowedHeaders: [Content-Type, Authorization, Accept, X-Requested-With]
+            exposedHeaders: []
+            allowCredentials: false
+            maxAge: 1800
     rest:
         timeout: 10.0
         connect-timeout: 5.0
@@ -100,6 +107,7 @@ winter:
 - `application.name`, `application.id`, `application.version`: service identity, shown in the startup banner and available from `ApplicationContext`.
 - `web.request.enableTrace`: when `true`, logs a `TRACE START` line on request arrival and a `TRACE FINISH` line (method, URI, response status, time taken) on completion. Default `false`. Documented in [Logging](/winter-boot/ops/logging).
 - `web.json.prettyPrint`: when `false` (default since 2.1.2), JSON response bodies are compact; set `true` to indent them. Documented in [REST Controllers](/winter-boot/web/rest-controllers).
+- `web.cors.*`: Cross-Origin Resource Sharing, off unless `allowedOrigins` is non-empty. `allowedOrigins`: exact origins (`https://app.example.com`) browsers may call from; `*` allows any origin but is refused together with `allowCredentials` (CORS then stays off and an error is logged). `allowedMethods`: methods a cross-origin request may use (checked on preflights and on simple requests), default `GET, HEAD, POST, PUT, PATCH, DELETE`; `*` = any method. `allowedHeaders`: request headers a preflight may ask for, default `Content-Type, Authorization, Accept, X-Requested-With` (`*` = any well-formed header). `exposedHeaders`: response headers scripts may read, default none. `allowCredentials`: send `Access-Control-Allow-Credentials: true`, default `false`. `maxAge`: seconds a browser may cache a preflight, default `1800`, capped at `86400`. Lists may also be comma-separated strings. Documented in [REST Controllers](/winter-boot/web/rest-controllers#cors).
 - `rest.timeout`: overall RestTemplate request timeout in seconds. Default `10.0`. Documented in [RestTemplate](/winter-boot/web/rest-template).
 - `rest.connect-timeout`: RestTemplate connect timeout in seconds. Default `5.0`. Documented in [RestTemplate](/winter-boot/web/rest-template).
 - `task.async.*`: async worker pool size, queue capacity, argument size limit, per-worker concurrency, and queue storage. Documented in [Async Tasks](/winter-boot/async/async-tasks).
