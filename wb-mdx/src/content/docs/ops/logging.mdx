@@ -197,5 +197,9 @@ loggers:
 ```
 
 <Aside type="tip">
-For advanced configuration — such as multiple loggers, log rotation, or remote handlers — refer to the [monolog-cascade documentation](https://github.com/theorchard/monolog-cascade).
+For advanced configuration — such as multiple loggers, log rotation, or remote handlers — refer to the [monolog-cascade documentation](https://github.com/suvera/monolog-cascade).
 </Aside>
+
+### Monolog 3
+
+Winter Boot 2.2.0 and later use Monolog 3. Existing `logger.yml` files work unchanged, including level names such as `level: DEBUG`. If you wrote your own processor, formatter or handler class, it now receives a `Monolog\LogRecord` object instead of an array: read `$record->context` and `$record->extra` instead of `$record['context']`, and use the `Monolog\Level` enum (`Level::Warning`) instead of the deprecated `Logger::WARNING` constants. See Monolog's [upgrade notes](https://github.com/Seldaek/monolog/blob/main/UPGRADE.md#300) for the full list.
