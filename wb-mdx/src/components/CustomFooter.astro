@@ -6,6 +6,9 @@ import type { Props } from '@astrojs/starlight/props';
   <div class="copyright">
     &copy; 2026 suvera.xyz
   </div>
+  <div class="trademark">
+    Spring and Spring Boot are trademarks of their respective owners. Winter Boot is an independent open-source project and is not affiliated with, endorsed by, or sponsored by them.
+  </div>
 </footer>
 
 <style>
@@ -14,11 +17,19 @@ import type { Props } from '@astrojs/starlight/props';
     padding: 2rem 0;
     margin-top: 3rem;
     display: flex;
+    flex-direction: column;
     justify-content: center;
     align-items: center;
+    gap: 0.5rem;
+    text-align: center;
   }
-  .copyright {
+  .copyright,
+  .trademark {
     color: var(--sl-color-gray-3);
     font-size: var(--sl-text-sm);
+  }
+  .trademark {
+    font-size: var(--sl-text-xs);
+    max-width: 40rem;
   }
 </style>
