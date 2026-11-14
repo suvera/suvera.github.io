@@ -12,6 +12,26 @@ Winter Boot 2.3 serves WebSockets on the same port as your REST API. A handler i
 
 When the application has no `#[WebSocketController]` (and `server.websocket.enabled` is not `true`), nothing changes: the server stays a plain HTTP server.
 
+## One port for HTTP and WebSocket
+
+There is no separate WebSocket port. HTTP and WebSocket share `server.port`: Swoole's WebSocket server is an HTTP server as well, so ordinary requests go to your REST routes, and a request carrying `Upgrade: websocket` becomes a socket.
+
+```yaml
+server:
+    port: 8080
+    context-path: /
+```
+
+| Client | URL |
+|---|---|
+| REST call | `http://host:8080/api/orders` |
+| WebSocket | `ws://host:8080/ws/assistant` |
+| Behind TLS (ingress, load balancer) | `https://app.example.com/api/...` and `wss://app.example.com/ws/...` |
+
+- Sockets live under `server.context-path`, like routes.
+- One proxy or ingress route serves both. Only the WebSocket location needs the upgrade headers forwarded (see [Behind a proxy](#behind-a-proxy-or-load-balancer)).
+- The admin listener (`server.admin.port`) stays a separate, plain HTTP port; WebSocket upgrades are refused there.
+
 ## A handler
 
 ```php title="AssistantSocket.php"

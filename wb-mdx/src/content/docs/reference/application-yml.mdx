@@ -43,7 +43,7 @@ Every key under `server.swoole` is passed to Swoole's server settings as is, exc
 
 An unknown name stops the application at startup.
 
-`server.websocket` (2.3+) configures [WebSockets](/winter-boot/web/websockets). Every key is optional:
+`server.websocket` (2.3+) configures [WebSockets](/winter-boot/web/websockets). They are served on `server.port`, the same port as HTTP; there is no separate WebSocket port. Every key is optional:
 
 | Key | Default | Meaning |
 |---|---|---|
