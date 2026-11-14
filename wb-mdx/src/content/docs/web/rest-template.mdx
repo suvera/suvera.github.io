@@ -151,36 +151,64 @@ winter:
 
 ## Streaming responses
 
-`exchangeStream()` (2.3+) hands the response body to a callback piece by piece as it arrives, instead of returning it whole: an AI model's token stream, server-sent events, or chunked JSON lines.
+`exchangeStream()` (2.3+) decodes the response body as it arrives and hands each item to a callback, instead of returning the body whole: an AI model's token stream, server-sent events, or JSON lines.
 
 ```php
 use dev\winterframework\web\client\HttpEntity;
-use dev\winterframework\web\client\RestTemplate;
-use dev\winterframework\web\client\sse\SseEvent;
+use dev\winterframework\web\client\StreamDecoder;
+use dev\winterframework\web\sse\SseEvent;
 
 $result = $this->restTemplate->exchangeStream(
     'POST',
     'https://api.example.com/v1/chat',
     new HttpEntity(['stream' => true, 'messages' => $messages], ['Authorization' => 'Bearer ' . $key]),
-    RestTemplate::sse(function (SseEvent $event) use ($out): bool {
+    function (SseEvent $event) use ($out) {
         $out->write($event->json()['delta'] ?? '');
-        return !$this->stopRequested();          // false stops the stream
-    })
+    },
+    decoder: StreamDecoder::sse(),
+    cancel: $token,                              // optional: stop the call from elsewhere
 );
-$result->isAborted();                            // true when a callback returned false
+$result->isCompleted();                          // ended normally ([DONE] or the server closed it)
 ```
 
-- `$onChunk(string $bytes)` runs for every piece of the body. Returning `false` stops reading and closes the connection without an error; the returned `StreamResponseEntity` then reports `isAborted()`. `getBytesReceived()` counts what was delivered.
+`exchangeStream(string $method, string $url, ?HttpEntity $entity, callable $onItem, ?StreamDecoder $decoder = null, ?CancellationToken $cancel = null, array $uriVars = [], array $query = []): StreamExchangeResult`
+
+### Decoders
+
+Bytes arrive in arbitrary pieces: an event or a line can be split across two chunks, and one chunk can hold several. The decoder buffers what is incomplete and hands your callback only whole items.
+
+| Decoder | Callback receives | For |
+|---|---|---|
+| `StreamDecoder::raw()` (default) | `string`, each chunk as it arrives | plain text, your own framing |
+| `StreamDecoder::sse()` | `SseEvent` | `text/event-stream`: OpenAI, Anthropic and most AI APIs |
+| `StreamDecoder::ndjson()` | the decoded JSON value of each line | newline-delimited JSON: Ollama and other JSON-lines APIs |
+
+- **SSE**: parses `event:`, multi-line `data:`, `id:`, `retry:`, comment lines and any line ending. The `data: [DONE]` sentinel most AI vendors send ends the stream: it is not delivered, and reading stops there. Keep the decoder to resume later: `$sse = StreamDecoder::sse(); …; $sse->getLastEventId()`.
+- **NDJSON**: skips empty lines, and delivers a last line without a newline when the body ends. A line over 4 MiB (`StreamDecoder::ndjson($maxLineBytes)`) or invalid JSON fails the call.
+- **Your own**: extend `StreamDecoder` and implement `feed(string $bytes): iterable` (plus `finish()` and `isDone()` if the format needs them). Use a new decoder for every call; they keep state.
+
+Malformed input throws `StreamDecodeException` (a `RestClientException`); its message names the call, never body content. An exception thrown by your callback is passed through unchanged.
+
+`SseEvent`, `SseParser` and the server-side [`SseEmitter`](/winter-boot/web/rest-controllers#streaming-responses) share the `dev\winterframework\web\sse` namespace: an event parsed here can be re-emitted as is with `SseEmitter::send()`.
+
+### Stopping
+
+- **From the callback**: return `false`. Reading stops and the connection closes without an error; the result reports `isAborted()`.
+- **From elsewhere**: pass a `CancellationToken` (`dev\winterframework\util\concurrent`) as `cancel:`. Within about 100 ms of `cancel()` the call returns, also while the server sends nothing: a "stop" button works while the model is still thinking. The result reports `isCancelled()`. A cancelled token passed in makes no request at all.
+- Neither is an error.
+
+Two tokens come ready-made: [`WebSocketSession::beginWork()`](/winter-boot/web/websockets#long-running-work-and-stop) (cancelled by a "stop" message or the socket closing) and [`ResponseWriter::getCancellationToken()`](/winter-boot/web/rest-controllers#streaming-responses) (cancelled when your own client disconnects).
+
+### The result
+
+`StreamExchangeResult` extends `ResponseEntity` (status and headers) and reports how the stream ended: `isCompleted()`, `isAborted()`, `isCancelled()`, plus `getBytesReceived()` and `getItemsDelivered()`. Its body is `null`: the content went to your callback.
+
+### Errors and timeouts
+
 - The status and headers are known before the first byte. A `4xx`/`5xx` response never reaches the callback: its body (up to 1 MiB) is mapped exactly like `exchange()`, to `HttpClientErrorException` / `HttpServerErrorException` with `getResponseBody()`, or to your error handler.
-- The read timeout (`setTimeout()`, `winter.rest.timeout`) is the longest wait for the next bytes, not a total budget: a stream may run for minutes as long as data keeps coming. The connect timeout applies as usual. Exceeding either throws `RestClientTimeoutException` (a `RestClientException`); the message never contains the query string.
+- **Stream idle timeout**: the longest silence between two reads, not a total budget, so a stream may run for any length of time as long as data keeps coming. Default 60 s, because AI models can think for a while before the first token: `setStreamIdleTimeout()` or `winter.rest.stream-idle-timeout`. `setTimeout()` (the total for `exchange()`) does not apply to streams. The connect timeout applies as usual. Exceeding either throws `RestClientTimeoutException`; the message never contains the query string.
 - Inside a Swoole coroutine it never blocks the worker, whatever `hook_flags` say (`-SWOOLE_HOOK_CURL` included): it speaks HTTP/1.1 over Swoole's coroutine socket, not cURL. Outside coroutines it uses PHP sockets. Redirects are not followed, and `Accept-Encoding: identity` is always requested.
 - HTTPS is verified against the system CAs (or the `caFile` given to `DefaultRestClientTransport`). With a proxy (`new DefaultRestClientTransport(proxy: 'http://user:pass@proxy:3128')`), HTTPS goes through a `CONNECT` tunnel.
-
-### Server-sent events
-
-`RestTemplate::sse(callable $onEvent)` turns an event handler into a chunk callback. It parses `text/event-stream` (`event:`, multi-line `data:`, `id:`, `retry:`, comment lines, any line ending, events split across chunks) and calls `$onEvent(SseEvent $event)` for each complete event. Returning `false` stops the stream. The `data: [DONE]` sentinel most AI vendors send ends delivery: it is not passed on.
-
-`SseEvent` has `event` (`'message'` when unnamed), `data` (lines joined with `\n`), `id`, `retry`, `json()` and `isDone()`. To parse a stream yourself, feed chunks to `SseParser::feed()`, which returns the completed events.
 
 ## Transports and testing
 
@@ -198,6 +226,7 @@ To test code that uses `exchangeStream()`, give the fake `StreamingRestClientTra
 ```php
 use dev\winterframework\web\client\RestClientTransport;
 use dev\winterframework\web\client\StreamingRestClientTransport;
+use dev\winterframework\web\client\StreamRequest;
 
 final class FakeStreamingTransport implements RestClientTransport, StreamingRestClientTransport
 {
@@ -209,13 +238,12 @@ final class FakeStreamingTransport implements RestClientTransport, StreamingRest
         return ['status' => $this->status, 'headers' => [], 'body' => implode('', $this->chunks)];
     }
 
-    public function stream(string $method, string $url, array $headers, ?string $body, float $idleTimeout,
-                           float $connectTimeout, callable $onResponse, callable $onChunk): void
+    public function stream(StreamRequest $request, callable $onResponse, callable $onChunk): void
     {
         $onResponse($this->status, ['Content-Type' => ['text/event-stream']]);
         foreach ($this->chunks as $chunk) {
-            if ($onChunk($chunk) === false) {
-                return;                                   // the caller aborted
+            if ($request->isCancelled() || $onChunk($chunk) === false) {
+                return;                                   // the caller stopped
             }
         }
     }
@@ -224,7 +252,9 @@ final class FakeStreamingTransport implements RestClientTransport, StreamingRest
 $rest = new RestTemplate(new FakeStreamingTransport(200, ["data: {\"text\":\"Hel", "lo\"}\n\n", "data: [DONE]\n\n"]));
 ```
 
-A fake that implements only `RestClientTransport` still works with `exchangeStream()`, but delivers the whole body as one chunk.
+`StreamRequest` carries what `RestTemplate` prepared: `method`, `url`, `headers`, `body`, `idleTimeout`, `connectTimeout` and the `cancel` token. New options are added there, so a transport's `stream()` signature never changes.
+
+A fake that implements only `RestClientTransport` still works with `exchangeStream()`: the whole body is decoded at once after it arrived.
 
 <Aside type="note">
   Each `RestTemplate` call waits for its response before returning. To run several slow calls in parallel, dispatch them through [`#[Async]`](/winter-boot/async/async-tasks) service methods instead of making them one after another.
