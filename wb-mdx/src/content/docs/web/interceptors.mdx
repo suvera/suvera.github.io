@@ -331,3 +331,14 @@ When multiple interceptors are registered, they run in **registration order** fo
 <Aside type="tip">
   Use `afterCompletion` for cleanup (closing connections, resetting per-request state) because it is the only hook guaranteed to run whether the request succeeded or failed.
 </Aside>
+
+## Context path and patterns
+
+Interceptor patterns are matched against the full request path. With a `server.context-path` (say `/api`), a route answers both with and without the prefix (`/api/orders` and `/orders`), but a pattern like `^\/orders` only matches the second. Write authentication patterns that cover both (`'^(\/api)?\/orders'`), otherwise the prefixed URL skips the interceptor.
+
+## WebSocket handshakes and streamed responses
+
+App-level `HandlerInterceptor`s also run for:
+
+- **WebSocket upgrade requests** (2.3+). `preHandle()` runs before anything is upgraded, so the same pattern that protects `^/api` protects `^/ws`. Returning `false` sends your response (for example `401`) and the connection is never upgraded. `postHandle()` runs before the `101` response, so cookies it sets are sent. `afterCompletion()` runs once, right after the handler's `onOpen()`. Messages that follow do not pass the interceptors; use a `WebSocketContextHook` to restore what they set up. See [WebSockets](/winter-boot/web/websockets#per-connection-context).
+- **Streamed responses** (`StreamingResponseEntity`, 2.3+). `postHandle()` and `afterCompletion()` run once each, after the stream ended, so request-scoped state your interceptors set stays available while the body is produced. Headers or cookies they set at that point are not sent. See [Streaming responses](/winter-boot/web/rest-controllers#streaming-responses).

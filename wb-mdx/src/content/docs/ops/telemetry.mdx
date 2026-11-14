@@ -72,7 +72,20 @@ Winter Boot integrates with OpenTelemetry (OTel) for **distributed traces**, **m
 
 ## Web Request Tracing
 
-Register `OpenTelemetryWebInterceptor` in your `WebMvcConfigurer` (see [Interceptors](/winter-boot/web/interceptors)) to create a span for every incoming HTTP request. The interceptor extracts the W3C Trace Context from request headers (enabling distributed trace propagation from upstream services), records the HTTP method, URL, and response status code, and closes the span — including exception recording — after the response is sent.
+Register `OpenTelemetryWebInterceptor` in your `WebMvcConfigurer` (see [Interceptors](/winter-boot/web/interceptors)) to create a server span for every incoming HTTP request. The interceptor extracts the W3C Trace Context from request headers (enabling distributed trace propagation from upstream services), records the HTTP method, URL, and response status code, and closes the span — including exception recording — after the response is sent, also when the request failed or an interceptor refused it.
+
+- A `5xx` response or an exception marks the span `ERROR` (the status description is the exception class, never its message). A `4xx` leaves the status unset: it is the client's error, not the server's.
+- Tracing never breaks a request: any OpenTelemetry failure is contained.
+- The span and its scope are kept as [request attributes](/winter-boot/web/rest-controllers#request-attributes) (`OpenTelemetryWebInterceptor::SPAN_ATTRIBUTE`), so your own interceptors can add attributes to it.
+- Pass a tracer provider to trace with it regardless of the telemetry setting: `new OpenTelemetryWebInterceptor($tracerProvider)` (handy in tests with an in-memory exporter).
+
+<Aside type="caution">
+  Before 2.3.0 this interceptor failed every request it was registered for (it called request methods that did not exist). Upgrade before registering it.
+</Aside>
+
+<Aside type="note">
+  The span is made the active OpenTelemetry context while the request runs, so `#[Traceable]` spans become its children. OpenTelemetry's context is process-wide, not per coroutine: with `hook_flags: SWOOLE_HOOK_ALL`, a worker serves several requests at once and spans may be parented under another request's span.
+</Aside>
 
 ```php title="MyWebConfigurer.php"
 use dev\winterframework\telemetry\web\OpenTelemetryWebInterceptor;

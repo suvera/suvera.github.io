@@ -149,9 +149,42 @@ winter:
         connect-timeout: 5.0
 ```
 
+## Streaming responses
+
+`exchangeStream()` (2.3+) hands the response body to a callback piece by piece as it arrives, instead of returning it whole: an AI model's token stream, server-sent events, or chunked JSON lines.
+
+```php
+use dev\winterframework\web\client\HttpEntity;
+use dev\winterframework\web\client\RestTemplate;
+use dev\winterframework\web\client\sse\SseEvent;
+
+$result = $this->restTemplate->exchangeStream(
+    'POST',
+    'https://api.example.com/v1/chat',
+    new HttpEntity(['stream' => true, 'messages' => $messages], ['Authorization' => 'Bearer ' . $key]),
+    RestTemplate::sse(function (SseEvent $event) use ($out): bool {
+        $out->write($event->json()['delta'] ?? '');
+        return !$this->stopRequested();          // false stops the stream
+    })
+);
+$result->isAborted();                            // true when a callback returned false
+```
+
+- `$onChunk(string $bytes)` runs for every piece of the body. Returning `false` stops reading and closes the connection without an error; the returned `StreamResponseEntity` then reports `isAborted()`. `getBytesReceived()` counts what was delivered.
+- The status and headers are known before the first byte. A `4xx`/`5xx` response never reaches the callback: its body (up to 1 MiB) is mapped exactly like `exchange()`, to `HttpClientErrorException` / `HttpServerErrorException` with `getResponseBody()`, or to your error handler.
+- The read timeout (`setTimeout()`, `winter.rest.timeout`) is the longest wait for the next bytes, not a total budget: a stream may run for minutes as long as data keeps coming. The connect timeout applies as usual. Exceeding either throws `RestClientTimeoutException` (a `RestClientException`); the message never contains the query string.
+- Inside a Swoole coroutine it never blocks the worker, whatever `hook_flags` say (`-SWOOLE_HOOK_CURL` included): it speaks HTTP/1.1 over Swoole's coroutine socket, not cURL. Outside coroutines it uses PHP sockets. Redirects are not followed, and `Accept-Encoding: identity` is always requested.
+- HTTPS is verified against the system CAs (or the `caFile` given to `DefaultRestClientTransport`). With a proxy (`new DefaultRestClientTransport(proxy: 'http://user:pass@proxy:3128')`), HTTPS goes through a `CONNECT` tunnel.
+
+### Server-sent events
+
+`RestTemplate::sse(callable $onEvent)` turns an event handler into a chunk callback. It parses `text/event-stream` (`event:`, multi-line `data:`, `id:`, `retry:`, comment lines, any line ending, events split across chunks) and calls `$onEvent(SseEvent $event)` for each complete event. Returning `false` stops the stream. The `data: [DONE]` sentinel most AI vendors send ends delivery: it is not passed on.
+
+`SseEvent` has `event` (`'message'` when unnamed), `data` (lines joined with `\n`), `id`, `retry`, `json()` and `isDone()`. To parse a stream yourself, feed chunks to `SseParser::feed()`, which returns the completed events.
+
 ## Transports and testing
 
-`RestTemplate` delegates I/O to a `RestClientTransport`. The default transport picks its engine at runtime: Swoole's coroutine HTTP client inside a coroutine, cURL when available, plain PHP streams otherwise — so the same bean works from request handlers, CLI commands, and tests.
+`RestTemplate` delegates I/O to a `RestClientTransport`. The default transport picks its engine at runtime: Swoole's coroutine HTTP client inside a coroutine, cURL when available, plain PHP streams otherwise — so the same bean works from request handlers, CLI commands, and tests. Streaming calls need a transport that also implements `StreamingRestClientTransport` (the default one does); with any other transport `exchangeStream()` still works, but the whole body arrives as one chunk.
 
 Unit tests should inject a fake transport instead of touching the network:
 
@@ -159,6 +192,39 @@ Unit tests should inject a fake transport instead of touching the network:
 $fake = new FakeTransport(); // your RestClientTransport implementation
 $template = new RestTemplate($fake);
 ```
+
+To test code that uses `exchangeStream()`, give the fake `StreamingRestClientTransport` as well, so it delivers the body in the chunks you choose (split an SSE event across two chunks to test your parsing):
+
+```php
+use dev\winterframework\web\client\RestClientTransport;
+use dev\winterframework\web\client\StreamingRestClientTransport;
+
+final class FakeStreamingTransport implements RestClientTransport, StreamingRestClientTransport
+{
+    /** @param string[] $chunks */
+    public function __construct(private int $status, private array $chunks) {}
+
+    public function request(string $method, string $url, array $headers, ?string $body, float $timeout, float $connectTimeout): array
+    {
+        return ['status' => $this->status, 'headers' => [], 'body' => implode('', $this->chunks)];
+    }
+
+    public function stream(string $method, string $url, array $headers, ?string $body, float $idleTimeout,
+                           float $connectTimeout, callable $onResponse, callable $onChunk): void
+    {
+        $onResponse($this->status, ['Content-Type' => ['text/event-stream']]);
+        foreach ($this->chunks as $chunk) {
+            if ($onChunk($chunk) === false) {
+                return;                                   // the caller aborted
+            }
+        }
+    }
+}
+
+$rest = new RestTemplate(new FakeStreamingTransport(200, ["data: {\"text\":\"Hel", "lo\"}\n\n", "data: [DONE]\n\n"]));
+```
+
+A fake that implements only `RestClientTransport` still works with `exchangeStream()`, but delivers the whole body as one chunk.
 
 <Aside type="note">
   Each `RestTemplate` call waits for its response before returning. To run several slow calls in parallel, dispatch them through [`#[Async]`](/winter-boot/async/async-tasks) service methods instead of making them one after another.

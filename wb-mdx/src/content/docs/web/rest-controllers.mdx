@@ -117,6 +117,22 @@ $when     = $req->getRequestTime();     // unix timestamp
   Always read these from `HttpRequest`, never from `$_SERVER`. A server worker handles many requests, so `$_SERVER` can hold another request's values — the getters always return the current request's own data.
 </Aside>
 
+### Request attributes
+
+`HttpRequest` carries attributes (2.3+): values that interceptors and the framework attach to one request, never sent by the client. An interceptor can store what it resolved (the authenticated user, a tracing span) and the controller reads it back:
+
+```php
+// in a HandlerInterceptor::preHandle()
+$request->setAttribute('tenantId', $tenantId);
+
+// in the controller
+$tenantId = $req->getAttribute('tenantId');            // null when absent
+$req->hasAttribute('tenantId');
+$req->removeAttribute('tenantId');
+```
+
+They live on the request object, so concurrent requests in the same worker never see each other's values.
+
 ## Return Types
 
 Winter Boot looks at what a handler returns and sets the `Content-Type` header for you (unless you set one yourself).
@@ -127,6 +143,7 @@ Winter Boot looks at what a handler returns and sets the `Content-Type` header f
 | `string`, `int`, `float`, `bool` | Sent as-is; `Content-Type: text/plain` |
 | `SplFileInfo` | Streamed as a file download, with `Content-Type`, `Content-Length`, and `Content-Disposition` set |
 | `ResponseEntity` | Full control over status code, headers, and body |
+| `StreamingResponseEntity` | Body written in chunks as it is produced (2.3+, see [Streaming responses](#streaming-responses)) |
 
 JSON bodies are compact by default. To indent them (easier to read by hand, more bytes on the wire), set `winter.web.json.prettyPrint: true` in `application.yml`.
 
@@ -213,6 +230,153 @@ return ResponseEntity::ok()
 ```
 
 Call it once per cookie — each call adds another `Set-Cookie` header. Read the cookies a request carried with `HttpRequest::getCookie($name)` (see [Reading the Request](#reading-the-request)).
+
+## Streaming responses
+
+Return a `StreamingResponseEntity` (2.3+) to send the body while it is still being produced: a long report, NDJSON rows, or server-sent events relaying an AI model's answer. The status and headers go out with the first chunk, then every `write()` is sent at once as one HTTP chunk (chunked transfer encoding, never compressed).
+
+```php title="ExportController.php"
+use dev\winterframework\web\http\ResponseWriter;
+use dev\winterframework\web\http\StreamingResponseEntity;
+
+#[GetMapping(path: '/export')]
+public function export(): StreamingResponseEntity
+{
+    return StreamingResponseEntity::of(function (ResponseWriter $out) {
+        foreach ($this->rows() as $row) {
+            if (!$out->write(json_encode($row) . "\n")) {
+                return;                          // client disconnected: stop working
+            }
+        }
+    }, 'application/x-ndjson');
+}
+```
+
+For server-sent events (`text/event-stream`), use `sse()`. It sends the headers right away, and every `SseEmitter` method writes one complete event:
+
+```php title="ChatController.php"
+use dev\winterframework\web\http\SseEmitter;
+use dev\winterframework\web\http\StreamingResponseEntity;
+
+#[PostMapping(path: '/api/assistant/chat')]
+public function chat(#[RequestBody] ChatRequest $req): StreamingResponseEntity
+{
+    return StreamingResponseEntity::sse(function (SseEmitter $sse) use ($req) {
+        $sse->event('progress', ['step' => 'searching']);
+        foreach ($this->assistant->answer($req) as $token) {
+            if (!$sse->event('token', ['text' => $token])) {
+                return;                          // client gone
+            }
+        }
+        $sse->event('done', '[DONE]');
+    }, heartbeatSeconds: 15);
+}
+```
+
+| `SseEmitter` | Sends |
+|---|---|
+| `event(?string $name, mixed $data, ?string $id = null)` | `event:`, `id:` and `data:` lines; arrays and objects as JSON, strings one `data:` line per line |
+| `data(mixed $data)` | An unnamed event (`onmessage` in the browser) |
+| `comment(string $text)` | A `:` comment line clients ignore |
+| `retry(int $ms)` | The client's reconnection delay |
+| `heartbeat(float $seconds)` | A `: ping` comment every N seconds from a separate coroutine, until the stream ends |
+
+Event names and ids with line breaks are rejected (`InvalidArgumentException`), so request data cannot forge events.
+
+How a streamed response behaves:
+
+- **Client gone**: `write()` returns `false` and `isConnected()` turns `false` as soon as the connection drops, even while the producer is waiting and not writing. Stop the work then; with a heartbeat the drop is also noticed on the next ping.
+- **Interceptors**: `preHandle()` runs before the controller as usual. `postHandle()` and `afterCompletion()` run once, after the stream ended. Headers or cookies they set then are not sent, because the head already went out with the first chunk.
+- **Errors**: if the producer throws before writing anything, the request fails like any other (error controller, `500`). After the first chunk the status can no longer change: the error is logged, the response ends, and `afterCompletion()` receives the exception.
+- **Context**: the producer runs after the controller method returned, with the request still bound and your interceptors' context still set. Method-level advice (`#[Transactional]`, `#[Lockable]`, `#[Cacheable]`) has already finished by then, so open a transaction inside the producer if it needs one.
+- **No `Content-Length`**: it is removed, since the length is not known in advance.
+- **Proxies**: every streamed response sends `Cache-Control: no-cache` and `X-Accel-Buffering: no`, so nginx (and ingress-nginx) pass chunks on as they come instead of buffering the whole answer. Proxies still close a connection that stays silent too long (ingress-nginx and AWS ALB: 60 s by default): when a stream can pause, give `sse()` a heartbeat below that (15–25 s).
+- **Slow clients**: when the client reads slower than you write, Swoole buffers the output (roughly 10 MB with default socket buffers), then `write()` waits until the client catches up or disconnects. Only the producer's coroutine waits, not the worker; nothing is dropped, and there is no time limit. Check elapsed time in the producer if one client must not hold it forever.
+- **Reload and shutdown**: a stream still running when the worker stops is cut after Swoole's `max_wait_time` (3 s by default), without a final event. A browser `EventSource` reconnects by itself; a `fetch()` reader should treat an early end as "reconnect".
+- **Metrics**: streamed responses have no metrics of their own yet; the request appears in `http_request_duration`, measured until the stream ended.
+
+### Resuming with Last-Event-ID
+
+When a browser `EventSource` reconnects, it sends the id of the last event it received in the `Last-Event-ID` header. Give events ids and resume from there:
+
+```php
+#[GetMapping(path: '/api/notifications/stream')]
+public function stream(HttpRequest $req): StreamingResponseEntity
+{
+    $after = (int)($req->getFirstHeader('Last-Event-ID') ?? 0);
+    return StreamingResponseEntity::sse(function (SseEmitter $sse) use ($after) {
+        $sse->retry(3000);                               // reconnect after 3 s
+        foreach ($this->notifications->since($after) as $n) {
+            if (!$sse->event('notification', $n->toArray(), (string)$n->id)) {
+                return;
+            }
+        }
+    }, heartbeatSeconds: 20);
+}
+```
+
+### Reading a POST stream in the browser
+
+`EventSource` can only send `GET` requests. For a `POST` endpoint such as a chat, read the stream with `fetch()`; aborting the request is the "stop" button, and the server sees the client gone (`write()` returns `false`):
+
+```js
+const controller = new AbortController();
+stopButton.onclick = () => controller.abort();
+
+const res = await fetch('/api/assistant/chat', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+  body: JSON.stringify({ question }),
+  signal: controller.signal,
+});
+if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+let buffer = '';
+for (;;) {
+  const { value, done } = await reader.read();
+  if (done) break;
+  buffer += value.replace(/\r\n?/g, '\n');
+  let end;
+  while ((end = buffer.indexOf('\n\n')) >= 0) {        // one complete event
+    const block = buffer.slice(0, end);
+    buffer = buffer.slice(end + 2);
+    let event = 'message', data = [];
+    for (const line of block.split('\n')) {
+      if (line.startsWith('event:')) event = line.slice(6).trim();
+      else if (line.startsWith('data:')) data.push(line.slice(5).replace(/^ /, ''));
+    }                                                  // lines starting with ':' are comments/pings
+    if (data.length) onEvent(event, data.join('\n'));
+  }
+}
+```
+
+### Testing a streamed controller
+
+The producer is a plain callback: call the controller method, then run its body with a writer that records the chunks.
+
+```php
+use dev\winterframework\web\http\ResponseWriter;
+
+final class RecordingWriter implements ResponseWriter
+{
+    public array $chunks = [];
+    public bool $connected = true;
+    public function write(string $data): bool { if (!$this->connected) return false; $this->chunks[] = $data; return true; }
+    public function isConnected(): bool { return $this->connected; }
+    public function isCommitted(): bool { return $this->chunks !== []; }
+    public function getBytesWritten(): int { return strlen(implode('', $this->chunks)); }
+}
+
+$entity = $controller->chat($request);
+$writer = new RecordingWriter();
+$entity->getBody()->run($writer);
+
+// For sse(): $writer->chunks[0] is ": stream open\n\n", then one complete event per chunk.
+assert(str_contains($writer->chunks[1], "event: progress\n"));
+```
+
+Set `$writer->connected = false` to check that the producer stops when the client leaves.
 
 ## Complete CRUD Example
 
