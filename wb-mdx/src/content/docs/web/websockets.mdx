@@ -315,12 +315,25 @@ class AssistantRelaySocket implements WebSocketHandler
                 new HttpEntity(['question' => $msg['question'] ?? ''], [
                     'Cookie' => (string)$session->getHeader('Cookie'),   // act as the logged-in user
                     'Accept' => 'text/event-stream',
+                    // The API sees the relay as its client: pass the user's address and language on.
+                    'X-Forwarded-For' => self::forwardedFor($session),
+                    'Accept-Language' => (string)$session->getHeader('Accept-Language'),
                 ]),
-                RestTemplate::sse(fn (SseEvent $e): bool =>
-                    $session->send(['type' => $e->event, 'data' => $e->json()]) && !$token->isCancelled())
+                RestTemplate::sse(function (SseEvent $e) use ($session, $token): bool {
+                    // JSON data stays structured; anything else is passed on as text (json() would throw).
+                    $data = json_decode($e->data, true);
+                    return $session->send(['type' => $e->event, 'data' => $data ?? $e->data])
+                        && !$token->isCancelled();
+                })
             );
         } catch (HttpStatusCodeException $e) {
-            $session->send(['type' => 'error', 'status' => $e->getStatusCode()]);
+            // The API's body says why (403, 429 with when the limit resets): pass that on, not just the status.
+            $body = json_decode($e->getResponseBody(), true);
+            $session->send([
+                'type' => 'error',
+                'status' => $e->getStatusCode(),
+                'message' => is_array($body) ? ($body['error'] ?? $body['message'] ?? null) : null,
+            ]);
         } finally {
             $session->endWork('answer', $token);
         }
@@ -329,10 +342,24 @@ class AssistantRelaySocket implements WebSocketHandler
     public function onClose(WebSocketSession $session, int $code, string $reason): void
     {
     }
+
+    /** The handshake's X-Forwarded-For (set by your ingress) plus the address that connected. */
+    private static function forwardedFor(WebSocketSession $session): string
+    {
+        $chain = array_filter([
+            trim((string)$session->getHeader('X-Forwarded-For')),
+            (string)$session->getHandshake()->getRemoteAddr(),
+        ]);
+        return implode(', ', $chain);
+    }
 }
 ```
 
-`send()` returning `false` (the client left) or a cancelled token stops the upstream request; the API then sees its own client disconnect and stops the model. Errors from the API (`401`, `429`, …) arrive as `HttpStatusCodeException` before any event.
+`send()` returning `false` (the client left) or a cancelled token stops the upstream request; the API then sees its own client disconnect and stops the model. Errors from the API (`401`, `429`, …) arrive as `HttpStatusCodeException` before any event; `getResponseBody()` holds the API's explanation (with Winter Boot's default error controller, the detail is in `error`).
+
+- **Client address.** Without `X-Forwarded-For` the API sees the relay (`127.0.0.1`) as every user's address: audit logs record the wrong IP, and IP-keyed rate limits put all socket users in one bucket. The API must trust `X-Forwarded-For` only from known hops (the relay, your ingress) and read it from the right, skipping those hops: a client can send any value in the left part.
+- **Event data.** Decode tolerantly as above, or make the API send JSON in every event: `SseEvent::json()` throws on anything else, which would end the whole answer.
+- **Cookies.** A refreshed session cookie in the API's response (`Set-Cookie`) never reaches the browser through the relay; the browser's cookie is refreshed by its next direct API request.
 
 ## Testing
 
