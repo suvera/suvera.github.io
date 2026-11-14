@@ -131,7 +131,9 @@ $req->hasAttribute('tenantId');
 $req->removeAttribute('tenantId');
 ```
 
-They live on the request object, so concurrent requests in the same worker never see each other's values.
+They live on the request object, so concurrent requests in the same worker never see each other's values. Names starting with `winter.` are reserved for the framework (the tracing span is `winter.otel.span`).
+
+To call another service as the same user, forward the request's cookies with `$req->getCookieHeader()`, which rebuilds the `Cookie` header from the parsed cookies. Under Swoole, `getFirstHeader('Cookie')` is `null`, because Swoole moves cookies out of the headers.
 
 ## Return Types
 
@@ -255,8 +257,8 @@ public function export(): StreamingResponseEntity
 For server-sent events (`text/event-stream`), use `sse()`. It sends the headers right away, and every `SseEmitter` method writes one complete event:
 
 ```php title="ChatController.php"
-use dev\winterframework\web\http\SseEmitter;
 use dev\winterframework\web\http\StreamingResponseEntity;
+use dev\winterframework\web\sse\SseEmitter;
 
 #[PostMapping(path: '/api/assistant/chat')]
 public function chat(#[RequestBody] ChatRequest $req): StreamingResponseEntity
@@ -280,14 +282,16 @@ public function chat(#[RequestBody] ChatRequest $req): StreamingResponseEntity
 | `comment(string $text)` | A `:` comment line clients ignore |
 | `retry(int $ms)` | The client's reconnection delay |
 | `heartbeat(float $seconds)` | A `: ping` comment every N seconds from a separate coroutine, until the stream ends |
+| `send(SseEvent $event)` | An event exactly as given, e.g. one parsed from an upstream stream (relaying) |
+| `getCancellationToken()` | A token cancelled when the client disconnects (see below) |
 
 Event names and ids with line breaks are rejected (`InvalidArgumentException`), so request data cannot forge events.
 
 How a streamed response behaves:
 
-- **Client gone**: `write()` returns `false` and `isConnected()` turns `false` as soon as the connection drops, even while the producer is waiting and not writing. Stop the work then; with a heartbeat the drop is also noticed on the next ping.
-- **Interceptors**: `preHandle()` runs before the controller as usual. `postHandle()` and `afterCompletion()` run once, after the stream ended. Headers or cookies they set then are not sent, because the head already went out with the first chunk.
-- **Errors**: if the producer throws before writing anything, the request fails like any other (error controller, `500`). After the first chunk the status can no longer change: the error is logged, the response ends, and `afterCompletion()` receives the exception.
+- **Client gone**: `write()` returns `false` and `isConnected()` turns `false` as soon as the connection drops, even while the producer is waiting and not writing. `$out->getCancellationToken()` (`$sse->getCancellationToken()`) is cancelled at the same moment: pass it to slow work so it stops with the client. For a relayed AI call, `exchangeStream(..., cancel: $sse->getCancellationToken())` ends the upstream request within about 100 ms of the browser tab closing, even while the model is still thinking, so you stop paying for an answer nobody reads.
+- **Interceptors**: `preHandle()` and `postHandle()` run before the producer, in the request's own coroutine, exactly as for any other response, so headers and cookies they set (a refreshed session cookie) go out with the first chunk. `afterCompletion()` runs once, after the stream ended. Because `postHandle()` has run by then, session data the producer writes is not saved: write the session before returning the stream.
+- **Errors**: if the producer throws before writing anything, the request fails like any other (error controller, `500`; `postHandle()` has already run). After the first chunk the status can no longer change: the error is logged, the response ends, and `afterCompletion()` receives the exception.
 - **Context**: the producer runs after the controller method returned, with the request still bound and your interceptors' context still set. Method-level advice (`#[Transactional]`, `#[Lockable]`, `#[Cacheable]`) has already finished by then, so open a transaction inside the producer if it needs one.
 - **No `Content-Length`**: it is removed, since the length is not known in advance.
 - **Proxies**: every streamed response sends `Cache-Control: no-cache` and `X-Accel-Buffering: no`, so nginx (and ingress-nginx) pass chunks on as they come instead of buffering the whole answer. Proxies still close a connection that stays silent too long (ingress-nginx and AWS ALB: 60 s by default): when a stream can pause, give `sse()` a heartbeat below that (15–25 s).
@@ -353,30 +357,19 @@ for (;;) {
 
 ### Testing a streamed controller
 
-The producer is a plain callback: call the controller method, then run its body with a writer that records the chunks.
+The producer is a plain callback: call the controller method, then run its body with `TestResponseWriter`, which records the chunks.
 
 ```php
-use dev\winterframework\web\http\ResponseWriter;
+use dev\winterframework\test\web\TestResponseWriter;
 
-final class RecordingWriter implements ResponseWriter
-{
-    public array $chunks = [];
-    public bool $connected = true;
-    public function write(string $data): bool { if (!$this->connected) return false; $this->chunks[] = $data; return true; }
-    public function isConnected(): bool { return $this->connected; }
-    public function isCommitted(): bool { return $this->chunks !== []; }
-    public function getBytesWritten(): int { return strlen(implode('', $this->chunks)); }
-}
+$writer = new TestResponseWriter();
+$controller->chat($request)->getBody()->run($writer);
 
-$entity = $controller->chat($request);
-$writer = new RecordingWriter();
-$entity->getBody()->run($writer);
-
-// For sse(): $writer->chunks[0] is ": stream open\n\n", then one complete event per chunk.
-assert(str_contains($writer->chunks[1], "event: progress\n"));
+$chunks = $writer->getChunks();     // for sse(): ": stream open\n\n", then one complete event per chunk
+assert(str_contains($chunks[1], "event: progress\n"));
 ```
 
-Set `$writer->connected = false` to check that the producer stops when the client leaves.
+Call `$writer->disconnect()` (before or while the producer runs) to check that it stops when the client leaves: later writes return `false` and `getCancellationToken()` is cancelled.
 
 ## Complete CRUD Example
 

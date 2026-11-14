@@ -43,8 +43,9 @@ use dev\winterframework\stereotype\Autowired;
 use dev\winterframework\stereotype\web\WebSocketController;
 use dev\winterframework\web\client\HttpEntity;
 use dev\winterframework\web\client\RestTemplate;
-use dev\winterframework\web\client\sse\SseEvent;
+use dev\winterframework\web\client\StreamDecoder;
 use dev\winterframework\web\http\HttpRequest;
+use dev\winterframework\web\sse\SseEvent;
 use dev\winterframework\web\websocket\WebSocketHandler;
 use dev\winterframework\web\websocket\WebSocketMessage;
 use dev\winterframework\web\websocket\WebSocketSession;
@@ -58,8 +59,9 @@ class AssistantSocket implements WebSocketHandler
     public function onOpen(WebSocketSession $session, HttpRequest $handshake): void
     {
         // The interceptors already authenticated the handshake (401 otherwise),
-        // and the context hook copied the user onto the session.
-        $session->send(['type' => 'ready', 'user' => $session->getAttribute('userId')]);
+        // and their context is still set here: remember who this is.
+        $session->setAttribute('userId', TenantContext::current()->userId);
+        $session->send(['type' => 'ready']);
     }
 
     public function onMessage(WebSocketSession $session, WebSocketMessage $message): void
@@ -82,10 +84,9 @@ class AssistantSocket implements WebSocketHandler
                 'POST',
                 'https://llm.example.com/v1/chat',
                 new HttpEntity(['stream' => true, 'question' => $question]),
-                RestTemplate::sse(function (SseEvent $event) use ($session, $token): bool {
-                    $session->send(['type' => 'part', 'text' => $event->json()['text'] ?? '']);
-                    return !$token->isCancelled() && $session->isOpen();   // false stops the upstream call
-                })
+                fn (SseEvent $event) => $session->send(['type' => 'part', 'text' => $event->json()['text'] ?? '']),
+                decoder: StreamDecoder::sse(),
+                cancel: $token,                       // "stop" or the socket closing ends the call at once
             );
             $session->send(['type' => $token->isCancelled() ? 'stopped' : 'done']);
         } finally {
@@ -149,33 +150,41 @@ server:
 
 `'*'` allows any origin; only use it for sockets that do not rely on cookies.
 
+This list is separate from the two other origin lists, and an empty list means something different for each:
+
+| Setting | `[]` (the default) means |
+|---|---|
+| `server.websocket.allowedOrigins` | same host only |
+| `winter.web.cors.allowedOrigins` | CORS off: no cross-origin access |
+| `winter.mcp.allowedOrigins` | any request with an `Origin` header is refused |
+
+A front end on another origin that calls your API (CORS) and opens a socket needs its origin in both `winter.web.cors.allowedOrigins` and `server.websocket.allowedOrigins`.
+
 ## Per-connection context
 
-Each message runs in a new coroutine, where the context your interceptors set for the handshake (tenant, user, principal) is gone. Winter Boot binds the handshake request as the current request for every call (`ApplicationContext::getCurrentHttpRequest()`, cookies included). For your own request-scoped state, register a `WebSocketContextHook`:
+Each message runs in a new coroutine, where the context your interceptors set for the handshake (tenant, user, principal) is gone. Winter Boot binds the handshake request as the current request for every call (`ApplicationContext::getCurrentHttpRequest()`, cookies included). For your own request-scoped state, register a `RequestContextPropagator`:
 
-```php title="TenantSocketContext.php"
+```php title="TenantContextPropagator.php"
+use dev\winterframework\core\web\RequestContextPropagator;
 use dev\winterframework\web\http\HttpRequest;
-use dev\winterframework\web\websocket\WebSocketContextHook;
-use dev\winterframework\web\websocket\WebSocketSession;
 
-class TenantSocketContext implements WebSocketContextHook
+class TenantContextPropagator implements RequestContextPropagator
 {
     // Once, in the handshake coroutine, after the interceptors accepted it.
-    public function capture(WebSocketSession $session, HttpRequest $handshake): void
+    // Return whatever restore() needs; the framework keeps it with the connection.
+    public function capture(HttpRequest $request): mixed
     {
-        $ctx = TenantContext::current();
-        $session->setAttribute('userId', $ctx->userId);
-        $session->setAttribute('societyId', $ctx->societyId);
+        return TenantContext::current();
     }
 
     // Before every onMessage() / onClose(), in that call's coroutine.
-    public function restore(WebSocketSession $session): void
+    public function restore(mixed $snapshot): void
     {
-        TenantContext::set(userId: $session->getAttribute('userId'), societyId: $session->getAttribute('societyId'));
+        TenantContext::set($snapshot);
     }
 
     // After every call, also when it failed.
-    public function clear(WebSocketSession $session): void
+    public function clear(): void
     {
         TenantContext::clear();
     }
@@ -186,11 +195,11 @@ class TenantSocketContext implements WebSocketContextHook
 public function addInterceptors(InterceptorRegistry $registry): void
 {
     $registry->addInterceptor(new WebSessionAuthenticator(), '^\/api', '^\/ws');
-    $registry->addWebSocketContextHook(new TenantSocketContext());
+    $registry->addContextPropagator(new TenantContextPropagator());
 }
 ```
 
-A `restore()` that throws fails closed: the handler is not called and the connection closes with `1011`. Coroutines your handler starts itself (`go()`) do not inherit the context; restore it there too if they need it.
+The snapshot is not a session attribute: attributes stay your own data (what you find sessions by). A `restore()` that throws fails closed: the handler is not called and the connection closes with `1011`. Coroutines your handler starts itself (`go()`) do not inherit the context; restore it there too if they need it.
 
 <Aside type="caution">
   The handshake is authenticated once. If a user logs out or their session expires, an open socket stays connected until it closes. Re-check what matters in `restore()` (and close the session) if that is not acceptable.
@@ -202,7 +211,7 @@ A `restore()` that throws fails closed: the handler is not called and the connec
 
 | Method | |
 |---|---|
-| `getId()` | Connection id (the Swoole fd). Unique only while the connection is open: Swoole reuses it for a later connection, so never store it as a lasting key (use your own id in an attribute). |
+| `getId()` | An opaque session id (a random string), unique across workers and pods and never reused: safe to store, e.g. to route a notification back to this connection. |
 | `getPath()`, `getHandshake()`, `getHeader()`, `getCookie()` | The upgrade request. |
 | `getAttribute()`, `setAttribute()`, `hasAttribute()`, `removeAttribute()` | Your per-connection data. |
 | `send(string\|array\|JsonSerializable)` | Text frame; arrays and objects are sent as JSON. |
@@ -210,7 +219,7 @@ A `restore()` that throws fails closed: the handler is not called and the connec
 | `close(int $code = 1000, string $reason = '')` | Close with a code (1000-1003, 1007-1014, 3000-4999; the reason is cut to 123 bytes). |
 | `isOpen()` | Open and not closing. |
 
-`send()` never throws into your code: it returns `false` when the connection is closed (or the data cannot be JSON-encoded). It is safe from any coroutine of the same worker, so a long task can stream into the socket while other messages are handled.
+`send()` returns `false` when the connection is closed; it never throws for that. Data that cannot be JSON-encoded is a programming error and throws `JsonException`. It is safe from any coroutine of the same worker, so a long task can stream into the socket while other messages are handled.
 
 ### Slow clients
 
@@ -243,7 +252,9 @@ Messages of one connection are handled concurrently: a minute-long `onMessage()`
 - Closing the connection cancels every task.
 - The task checks `$token->isCancelled()` (or `throwIfCancelled()`) between steps, and calls `endWork('answer', $token)` when done.
 
-With [`RestTemplate::exchangeStream()`](/winter-boot/web/rest-template#streaming-responses), return `false` from the chunk callback to stop the upstream request, as in the example above.
+`CancellationToken` (`dev\winterframework\util\concurrent`) is the framework's single cancellation type. Pass it straight to [`RestTemplate::exchangeStream(..., cancel: $token)`](/winter-boot/web/rest-template#stopping), as in the example above: the upstream request ends within about 100 ms of the "stop", even while the model is still thinking.
+
+`onClose()` can run while an `onMessage()` of the same connection is still working; by then every token of the connection is cancelled, so work that checks its token winds down.
 
 A connection may have at most `server.websocket.maxConcurrentMessages` (default 32) messages in progress; one more closes it with `1008`.
 
@@ -269,7 +280,7 @@ public function notify(int $userId, array $event): void
 ## Closing, timeouts and restarts
 
 - **Heartbeat and idle timeout**: the server pings every connection every `heartbeatInterval` seconds (default 30). Browsers answer automatically. A connection with no frame at all (messages, pings or pongs) for `idleTimeout` seconds (default 90) is closed with `1000` "Idle timeout".
-- **Message size**: a message larger than `maxFrameSize` bytes (default 1 MiB) closes the connection with `1009`. Swoole drops frames above `server.swoole.package_max_length` (default 2 MiB, it also caps HTTP bodies) before Winter Boot sees them; a `maxFrameSize` above it stops the application at startup.
+- **Message size**: a message larger than `maxMessageSize` bytes (default 1 MiB, counted after fragments are joined) closes the connection with `1009`. Swoole drops frames above `server.swoole.package_max_length` (default 2 MiB, it also caps HTTP bodies) before Winter Boot sees them; a `maxMessageSize` above it stops the application at startup.
 - **Reload and shutdown** (`SIGUSR1`, `SIGTERM`): as soon as a worker starts exiting, it closes its connections with `1001` (going away), so clients reconnect to the next worker or pod. `onClose()` still runs once for each.
 - A connection can also drop without a close frame (network loss, a killed process): browsers report `1006`. Treat both `1001` and `1006` as "reconnect".
 
@@ -313,18 +324,19 @@ class AssistantRelaySocket implements WebSocketHandler
                 'POST',
                 'http://127.0.0.1:8080/api/assistant/chat',     // this same service, or the API's internal address
                 new HttpEntity(['question' => $msg['question'] ?? ''], [
-                    'Cookie' => (string)$session->getHeader('Cookie'),   // act as the logged-in user
+                    'Cookie' => $session->getHandshake()->getCookieHeader(),   // act as the logged-in user
                     'Accept' => 'text/event-stream',
                     // The API sees the relay as its client: pass the user's address and language on.
                     'X-Forwarded-For' => self::forwardedFor($session),
                     'Accept-Language' => (string)$session->getHeader('Accept-Language'),
                 ]),
-                RestTemplate::sse(function (SseEvent $e) use ($session, $token): bool {
+                function (SseEvent $e) use ($session): bool {
                     // JSON data stays structured; anything else is passed on as text (json() would throw).
                     $data = json_decode($e->data, true);
-                    return $session->send(['type' => $e->event, 'data' => $data ?? $e->data])
-                        && !$token->isCancelled();
-                })
+                    return $session->send(['type' => $e->event, 'data' => $data ?? $e->data]);
+                },
+                decoder: StreamDecoder::sse(),
+                cancel: $token,           // "stop", a newer question or the socket closing ends the call at once
             );
         } catch (HttpStatusCodeException $e) {
             // The API's body says why (403, 429 with when the limit resets): pass that on, not just the status.
@@ -355,42 +367,38 @@ class AssistantRelaySocket implements WebSocketHandler
 }
 ```
 
-`send()` returning `false` (the client left) or a cancelled token stops the upstream request; the API then sees its own client disconnect and stops the model. Errors from the API (`401`, `429`, …) arrive as `HttpStatusCodeException` before any event; `getResponseBody()` holds the API's explanation (with Winter Boot's default error controller, the detail is in `error`).
+A cancelled token (a "stop" message, a newer question, the socket closing) ends the upstream request within about 100 ms, even while the API is silent, and `send()` returning `false` (the client left) ends it at the next event. Either way the API sees its own client disconnect and can stop the model (with [`getCancellationToken()`](/winter-boot/web/rest-controllers#streaming-responses) on its side). Errors from the API (`401`, `429`, …) arrive as `HttpStatusCodeException` before any event; `getResponseBody()` holds the API's explanation (with Winter Boot's default error controller, the detail is in `error`).
 
 - **Client address.** Without `X-Forwarded-For` the API sees the relay (`127.0.0.1`) as every user's address: audit logs record the wrong IP, and IP-keyed rate limits put all socket users in one bucket. The API must trust `X-Forwarded-For` only from known hops (the relay, your ingress) and read it from the right, skipping those hops: a client can send any value in the left part.
 - **Event data.** Decode tolerantly as above, or make the API send JSON in every event: `SseEvent::json()` throws on anything else, which would end the whole answer.
-- **Cookies.** A refreshed session cookie in the API's response (`Set-Cookie`) never reaches the browser through the relay; the browser's cookie is refreshed by its next direct API request.
+- **Forwarding cookies.** Use `getHandshake()->getCookieHeader()`: under Swoole the handshake's `Cookie` header is not among its headers (`getHeader('Cookie')` is `null`), because Swoole parses cookies out of them.
+- **Cookies back.** A refreshed session cookie in the API's response (`Set-Cookie`) never reaches the browser through the relay; the browser's cookie is refreshed by its next direct API request.
 
 ## Testing
 
-Handlers are plain classes: build a `WebSocketSession` with a transport that records frames, and call the handler directly.
+Handlers are plain classes: call them with a `TestWebSocketSession`, which behaves like a real connection (close rules, attributes, work tokens) and records what is sent.
 
 ```php
-use dev\winterframework\web\http\HttpRequest;
+use dev\winterframework\test\web\TestWebSocketSession;
 use dev\winterframework\web\websocket\WebSocketMessage;
-use dev\winterframework\web\websocket\WebSocketSession;
-use dev\winterframework\web\websocket\WebSocketTransport;
 
-final class RecordingTransport implements WebSocketTransport
-{
-    public array $sent = [];
-    public array $closed = [];
-    public function push(int $fd, string $data, bool $binary): bool { $this->sent[] = $data; return true; }
-    public function disconnect(int $fd, int $code, string $reason): bool { $this->closed[] = $code; return true; }
-    public function ping(int $fd): bool { return true; }
-    public function pong(int $fd, string $data): bool { return true; }
-    public function isEstablished(int $fd): bool { return $this->closed === []; }
-}
-
-$transport = new RecordingTransport();
-$session = new WebSocketSession(1, '/ws/assistant', new HttpRequest(), $transport, '/ws/assistant');
-$session->setAttribute('userId', 42);                    // what your context hook would capture
+$session = new TestWebSocketSession('/ws/assistant');
+$session->setAttribute('userId', 42);
 
 $handler = new MySocket(/* fakes */);
 $handler->onMessage($session, WebSocketMessage::text('{"type":"echo","text":"hi"}'));
 
-assert(json_decode($transport->sent[0], true) === ['type' => 'echo', 'text' => 'hi']);
+assert($session->getSentJson() === [['type' => 'echo', 'text' => 'hi']]);
 ```
+
+| `TestWebSocketSession` | |
+|---|---|
+| `new TestWebSocketSession($path, ?HttpRequest $handshake)` | An open session; pass a handshake request to give it headers and cookies. |
+| `getSentMessages()`, `getSentJson()`, `getSentFrames()` | Text frames as sent, decoded as JSON, or every frame with its binary flag. |
+| `getCloseCode()`, `getCloseReason()` | What `close()` sent; `null` while open. |
+| `disconnect()` | The client leaves: `send()` returns `false`, `isOpen()` turns `false`. |
+
+To test a `RequestContextPropagator`, call `capture()` with a request and `restore()` with what it returned.
 
 For the full path (handshake through your interceptors, Origin, close codes), Winter Boot's own tests boot a small application in a subprocess and connect with Swoole's coroutine client (`Swoole\Coroutine\Http\Client::upgrade()`); see `srcTests/swoole/WebSocketSwooleTest.php` and `srcTests/swoole/support/FixtureServer.php` in the repository. Set `open_websocket_close_frame` on that client to receive close codes, and check `statusCode === 101` after `upgrade()`, which also returns true for a refused handshake.
 
@@ -403,7 +411,7 @@ server:
     websocket:
         enabled: true            # default: on when a #[WebSocketController] exists; false turns it off
         allowedOrigins: []       # [] = same host only
-        maxFrameSize: 1048576    # bytes
+        maxMessageSize: 1048576  # bytes
         idleTimeout: 90          # seconds, 0 = never
         heartbeatInterval: 30    # seconds, 0 = no pings
         maxConcurrentMessages: 32

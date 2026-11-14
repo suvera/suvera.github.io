@@ -49,7 +49,7 @@ An unknown name stops the application at startup.
 |---|---|---|
 | `server.websocket.enabled` | on when the application has a `#[WebSocketController]` | `true` makes the server a WebSocket server even without a handler; `false` never does. Without handlers and without `true`, the server is a plain HTTP server as before. |
 | `server.websocket.allowedOrigins` | `[]` | Browser `Origin`s allowed to open a socket (exact `scheme://host[:port]`, list or comma-separated). `[]` allows the same host only; `'*'` any origin. `null` is never allowed; requests without `Origin` are. Others get `403`. |
-| `server.websocket.maxFrameSize` | `1048576` | Largest incoming message in bytes; a bigger one closes the connection with `1009`. Must not exceed `server.swoole.package_max_length` (Swoole default 2 MiB), or startup fails. |
+| `server.websocket.maxMessageSize` | `1048576` | Largest incoming message in bytes (fragments joined); a bigger one closes the connection with `1009`. Must not exceed `server.swoole.package_max_length` (Swoole default 2 MiB), or startup fails. |
 | `server.websocket.idleTimeout` | `90` | Seconds without any frame from the client (pongs count) before the connection is closed with `1000`. `0` turns it off. |
 | `server.websocket.heartbeatInterval` | `30` | Seconds between server pings. `0` sends none. |
 | `server.websocket.maxConcurrentMessages` | `32` | Messages of one connection handled at the same time; one more closes it with `1008`. |
@@ -84,6 +84,7 @@ winter:
     rest:
         timeout: 10.0
         connect-timeout: 5.0
+        stream-idle-timeout: 60.0
     task:
         async:
             poolSize: 1
@@ -124,7 +125,8 @@ winter:
 - `web.request.enableTrace`: when `true`, logs a `TRACE START` line on request arrival and a `TRACE FINISH` line (method, URI, response status, time taken) on completion. Default `false`. Documented in [Logging](/winter-boot/ops/logging).
 - `web.json.prettyPrint`: when `false` (default since 2.1.2), JSON response bodies are compact; set `true` to indent them. Documented in [REST Controllers](/winter-boot/web/rest-controllers).
 - `web.cors.*`: Cross-Origin Resource Sharing, off unless `allowedOrigins` is non-empty. `allowedOrigins`: exact origins (`https://app.example.com`) browsers may call from; `*` allows any origin but is refused together with `allowCredentials` (CORS then stays off and an error is logged). `allowedMethods`: methods a cross-origin request may use (checked on preflights and on simple requests), default `GET, HEAD, POST, PUT, PATCH, DELETE`; `*` = any method. `allowedHeaders`: request headers a preflight may ask for, default `Content-Type, Authorization, Accept, X-Requested-With` (`*` = any well-formed header). `exposedHeaders`: response headers scripts may read, default none. `allowCredentials`: send `Access-Control-Allow-Credentials: true`, default `false`. `maxAge`: seconds a browser may cache a preflight, default `1800`, capped at `86400`. Lists may also be comma-separated strings. Documented in [REST Controllers](/winter-boot/web/rest-controllers#cors).
-- `rest.timeout`: overall RestTemplate request timeout in seconds; for streamed calls (`exchangeStream()`, 2.3+) the longest wait between reads instead. Default `10.0`. Documented in [RestTemplate](/winter-boot/web/rest-template).
+- `rest.timeout`: overall RestTemplate request timeout in seconds (not used by streamed calls). Default `10.0`. Documented in [RestTemplate](/winter-boot/web/rest-template).
+- `rest.stream-idle-timeout` (2.3+): for streamed calls (`exchangeStream()`), the longest silence between two reads, not a total budget. Default `60.0`. Documented in [RestTemplate](/winter-boot/web/rest-template#errors-and-timeouts).
 - `rest.connect-timeout`: RestTemplate connect timeout in seconds. Default `5.0`. Documented in [RestTemplate](/winter-boot/web/rest-template).
 - `task.async.*`: async worker pool size, queue capacity, argument size limit, per-worker concurrency, and queue storage. Documented in [Async Tasks](/winter-boot/async/async-tasks).
 - `task.scheduling.*`: scheduler pool size and capacity. Documented in [Scheduling](/winter-boot/async/scheduling).

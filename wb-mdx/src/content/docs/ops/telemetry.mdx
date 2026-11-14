@@ -76,7 +76,7 @@ Register `OpenTelemetryWebInterceptor` in your `WebMvcConfigurer` (see [Intercep
 
 - A `5xx` response or an exception marks the span `ERROR` (the status description is the exception class, never its message). A `4xx` leaves the status unset: it is the client's error, not the server's.
 - Tracing never breaks a request: any OpenTelemetry failure is contained.
-- The span and its scope are kept as [request attributes](/winter-boot/web/rest-controllers#request-attributes) (`OpenTelemetryWebInterceptor::SPAN_ATTRIBUTE`), so your own interceptors can add attributes to it.
+- The span and its scope are kept as [request attributes](/winter-boot/web/rest-controllers#request-attributes) (`OpenTelemetryWebInterceptor::SPAN_ATTRIBUTE`, `winter.otel.span`), so your own interceptors can add attributes to it.
 - Pass a tracer provider to trace with it regardless of the telemetry setting: `new OpenTelemetryWebInterceptor($tracerProvider)` (handy in tests with an in-memory exporter).
 
 <Aside type="caution">
